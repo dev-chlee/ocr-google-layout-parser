@@ -31,6 +31,9 @@ uv run python -m src.main --file samples/sample4-p10.pdf --output output
 # HTML만 (이미지 base64 임베드)
 uv run python -m src.main --file samples/sample4-p10.pdf --format html --embed-images
 
+# API 응답 캐시 사용 (처음: API 호출 후 캐시 저장, 이후: 캐시에서 로드)
+uv run python -m src.main --file samples/sample4-p10.pdf --cache output/cache.json
+
 # GCS 파일 처리
 uv run python -m src.main --gcs gs://bucket/file.pdf
 
