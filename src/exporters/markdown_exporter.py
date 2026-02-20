@@ -105,8 +105,6 @@ class MarkdownExporter:
             cells = [self._extract_cell_text(cell) for cell in row.cells]
             rows_data.append(cells)
 
-        header_count = len(rows_data)
-
         # 본문 행
         for row in table_block.body_rows:
             cells = [self._extract_cell_text(cell) for cell in row.cells]
@@ -138,7 +136,8 @@ class MarkdownExporter:
         texts: list[str] = []
         for block in cell.blocks:
             self._collect_block_text(block, texts)
-        return " ".join(texts).strip().replace("\n", " ")
+        text = " ".join(texts).strip().replace("\n", " ")
+        return text.replace("|", "\\|")
 
     def _collect_block_text(
         self,
