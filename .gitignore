@@ -23,3 +23,9 @@ output/
 # IDE
 .vscode/
 .idea/
+
+# Claude Code
+.claude/
+
+# Root-level PDF duplicates
+/*.pdf
