@@ -39,8 +39,11 @@ class MarkdownExporter:
         block: documentai.Document.DocumentLayout.DocumentLayoutBlock,
         parts: list[str],
         depth: int = 0,
-        in_list: bool = False,
+        list_marker: str = "",
+        list_indent: int = 0,
     ) -> None:
+        indent = "  " * list_indent
+
         if block.text_block and block.text_block.text:
             block_type = block.text_block.type_ or ""
             text = block.text_block.text.strip()
@@ -55,8 +58,8 @@ class MarkdownExporter:
                         level = int(ch)
                         break
                 parts.append(f"{'#' * level} {text}\n")
-            elif in_list:
-                parts.append(f"- {text}")
+            elif list_marker:
+                parts.append(f"{indent}{list_marker}{text}")
             elif block_type == "list_item":
                 parts.append(f"- {text}")
             else:
@@ -66,15 +69,26 @@ class MarkdownExporter:
             self._render_table(block.table_block, parts)
 
         elif block.list_block:
-            # LayoutListEntry는 blocks 필드만 있음 (text_block 없음)
-            for entry in block.list_block.list_entries:
+            list_type = block.list_block.type_ or ""
+            is_ordered = list_type == "ordered"
+            for idx, entry in enumerate(block.list_block.list_entries):
+                marker = f"{idx + 1}. " if is_ordered else "- "
                 for child_block in entry.blocks:
-                    self._render_block(child_block, parts, depth, in_list=True)
+                    self._render_block(
+                        child_block, parts, depth,
+                        list_marker=marker, list_indent=list_indent,
+                    )
+                    # 엔트리 내 첫 블록만 마커, 이후는 continuation
+                    marker = f"{'  ' if is_ordered else ' '} "
 
         # 재귀적으로 자식 블록 처리
         if block.text_block and block.text_block.blocks:
+            child_indent = list_indent + 1 if list_marker else list_indent
             for child in block.text_block.blocks:
-                self._render_block(child, parts, depth + 1, in_list=in_list)
+                self._render_block(
+                    child, parts, depth + 1,
+                    list_marker="", list_indent=child_indent,
+                )
 
     def _render_table(
         self,
