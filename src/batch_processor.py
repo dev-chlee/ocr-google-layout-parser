@@ -1,13 +1,7 @@
-from google.api_core.client_options import ClientOptions
 from google.cloud import documentai, storage
 
 from src.config import DocumentAIConfig
-from src.processor import _build_process_options
-
-
-def create_client(location: str) -> documentai.DocumentProcessorServiceClient:
-    opts = ClientOptions(api_endpoint=f"{location}-documentai.googleapis.com")
-    return documentai.DocumentProcessorServiceClient(client_options=opts)
+from src.processor import _build_process_options, create_client
 
 
 class BatchProcessor:

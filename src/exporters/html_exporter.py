@@ -157,36 +157,47 @@ class HTMLExporter:
         self,
         block: documentai.Document.DocumentLayout.DocumentLayoutBlock,
     ) -> str:
-        """document_layout 블록을 HTML로 렌더링."""
-        if block.text_block and block.text_block.text:
-            block_type = block.text_block.type_ or ""
-            text = _html_escape(block.text_block.text.strip())
+        """document_layout 블록을 HTML로 렌더링 (자식 블록 재귀 포함)."""
+        parts: list[str] = []
 
-            if "heading" in block_type:
-                level = 2
-                if "1" in block_type:
+        if block.text_block:
+            text = block.text_block.text.strip() if block.text_block.text else ""
+            block_type = block.text_block.type_ or ""
+
+            if text:
+                escaped = _html_escape(text)
+                if "heading" in block_type:
                     level = 2
-                elif "2" in block_type:
-                    level = 3
-                elif "3" in block_type:
-                    level = 4
-                return f"<h{level}>{text}</h{level}>"
-            elif block_type == "list_item":
-                return f"<li>{text}</li>"
-            else:
-                return f"<p>{text}</p>"
+                    if "2" in block_type:
+                        level = 3
+                    elif "3" in block_type:
+                        level = 4
+                    parts.append(f"<h{level}>{escaped}</h{level}>")
+                elif block_type == "list_item":
+                    parts.append(f"<li>{escaped}</li>")
+                elif block_type == "footer":
+                    pass  # 페이지 번호 등 footer는 생략
+                else:
+                    parts.append(f"<p>{escaped}</p>")
+
+            # 자식 블록 재귀 렌더링
+            if block.text_block.blocks:
+                for child in block.text_block.blocks:
+                    parts.append(self._render_block_html(child))
 
         elif block.table_block:
-            return self._render_table_html(block.table_block)
+            parts.append(self._render_table_html(block.table_block))
 
         elif block.list_block:
-            items = []
+            items: list[str] = []
             for entry in block.list_block.list_entries:
                 for child in entry.blocks:
                     items.append(self._render_block_html(child))
-            return "<ul>" + "".join(items) + "</ul>"
+            list_type = block.list_block.type_ or ""
+            tag = "ol" if list_type == "ordered" else "ul"
+            parts.append(f"<{tag}>{''.join(items)}</{tag}>")
 
-        return ""
+        return "".join(parts)
 
     def _render_table_html(
         self,

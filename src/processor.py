@@ -52,7 +52,17 @@ def process_document(
     file_path: str | None = None,
     gcs_uri: str | None = None,
     mime_type: str = "application/pdf",
+    cache_path: str | None = None,
 ) -> documentai.Document:
+    # 캐시된 응답이 있으면 로드
+    if cache_path:
+        from pathlib import Path
+
+        cache = Path(cache_path)
+        if cache.exists():
+            print(f"캐시된 응답 로드: {cache_path}")
+            return documentai.Document.from_json(cache.read_text(encoding="utf-8"))
+
     client = create_client(config.location)
 
     # 프로세서에서 설정된 기본 버전 사용
@@ -77,4 +87,15 @@ def process_document(
     request.process_options = _build_process_options(config)
 
     result = client.process_document(request=request, timeout=600)
-    return result.document
+    doc = result.document
+
+    # 응답 캐시 저장
+    if cache_path:
+        from pathlib import Path
+
+        cache = Path(cache_path)
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text(type(doc).to_json(doc), encoding="utf-8")
+        print(f"응답 캐시 저장: {cache_path}")
+
+    return doc

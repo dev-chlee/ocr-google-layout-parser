@@ -41,6 +41,11 @@ def main():
         default=None,
         help="청크 크기 오버라이드 (토큰 단위, 기본: .env 설정값)",
     )
+    parser.add_argument(
+        "--cache",
+        default=None,
+        help="API 응답 캐시 파일 경로 (있으면 로드, 없으면 저장)",
+    )
     args = parser.parse_args()
 
     config = DocumentAIConfig.from_env()
@@ -74,6 +79,7 @@ def _run_single(config: DocumentAIConfig, args) -> None:
         config,
         file_path=args.file,
         gcs_uri=args.gcs,
+        cache_path=args.cache,
     )
 
     base_name = Path(args.file or args.gcs).stem
