@@ -45,8 +45,13 @@ class MarkdownExporter:
 
             if block_type == "footer":
                 return  # 페이지 번호 등 footer 생략
-            elif block_type == "heading":
-                level = min(depth + 1, 6)
+            elif "heading" in block_type:
+                # heading-1 → #, heading-2 → ##, heading-3 → ###
+                level = 1
+                for ch in block_type:
+                    if ch.isdigit():
+                        level = int(ch)
+                        break
                 parts.append(f"{'#' * level} {block.text_block.text.strip()}\n")
             elif block_type == "paragraph":
                 parts.append(f"{block.text_block.text.strip()}\n")

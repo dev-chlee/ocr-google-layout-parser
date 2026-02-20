@@ -167,11 +167,12 @@ class HTMLExporter:
             if text:
                 escaped = _html_escape(text)
                 if "heading" in block_type:
-                    level = 2
-                    if "2" in block_type:
-                        level = 3
-                    elif "3" in block_type:
-                        level = 4
+                    # heading-1 → h1, heading-2 → h2, heading-3 → h3
+                    level = 1
+                    for ch in block_type:
+                        if ch.isdigit():
+                            level = int(ch)
+                            break
                     parts.append(f"<h{level}>{escaped}</h{level}>")
                 elif block_type == "list_item":
                     parts.append(f"<li>{escaped}</li>")
