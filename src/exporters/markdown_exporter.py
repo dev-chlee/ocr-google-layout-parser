@@ -39,9 +39,11 @@ class MarkdownExporter:
         block: documentai.Document.DocumentLayout.DocumentLayoutBlock,
         parts: list[str],
         depth: int = 0,
+        in_list: bool = False,
     ) -> None:
         if block.text_block and block.text_block.text:
             block_type = block.text_block.type_ or ""
+            text = block.text_block.text.strip()
 
             if block_type == "footer":
                 return  # 페이지 번호 등 footer 생략
@@ -52,13 +54,13 @@ class MarkdownExporter:
                     if ch.isdigit():
                         level = int(ch)
                         break
-                parts.append(f"{'#' * level} {block.text_block.text.strip()}\n")
-            elif block_type == "paragraph":
-                parts.append(f"{block.text_block.text.strip()}\n")
+                parts.append(f"{'#' * level} {text}\n")
+            elif in_list:
+                parts.append(f"- {text}")
             elif block_type == "list_item":
-                parts.append(f"- {block.text_block.text.strip()}")
+                parts.append(f"- {text}")
             else:
-                parts.append(f"{block.text_block.text.strip()}\n")
+                parts.append(f"{text}\n")
 
         elif block.table_block:
             self._render_table(block.table_block, parts)
@@ -67,12 +69,12 @@ class MarkdownExporter:
             # LayoutListEntry는 blocks 필드만 있음 (text_block 없음)
             for entry in block.list_block.list_entries:
                 for child_block in entry.blocks:
-                    self._render_block(child_block, parts, depth)
+                    self._render_block(child_block, parts, depth, in_list=True)
 
         # 재귀적으로 자식 블록 처리
         if block.text_block and block.text_block.blocks:
             for child in block.text_block.blocks:
-                self._render_block(child, parts, depth + 1)
+                self._render_block(child, parts, depth + 1, in_list=in_list)
 
     def _render_table(
         self,
