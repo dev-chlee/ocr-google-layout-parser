@@ -1,0 +1,16 @@
+[project]
+name = "gcs-api-ocr"
+version = "0.1.0"
+description = "GCP Document AI Layout Parser를 활용한 PDF OCR 파서"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "google-cloud-documentai>=2.20.0",
+    "google-cloud-documentai-toolbox>=0.13.0",
+    "google-cloud-storage>=2.10.0",
+    "python-dotenv>=1.0.0",
+    "pymupdf>=1.23.0",
+]
+
+[project.scripts]
+gcs-ocr = "src.main:main"
