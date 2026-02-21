@@ -668,8 +668,25 @@ body.show-images .text-col { width: 50%; flex: none; }
 # ── JavaScript ─────────────────────────────────────────────────
 
 _JS = """
-// 원본 이미지 토글
+// 원본 이미지 토글 (스크롤 위치 보존)
 function toggleImages() {
+  var content = document.getElementById('content-area');
+  var areaTop = content.getBoundingClientRect().top;
+
+  // 현재 뷰포트 상단에 보이는 페이지를 찾아서 위치 기억
+  var pages = document.querySelectorAll('.page');
+  var anchorEl = null;
+  var anchorOffset = 0;
+  for (var i = 0; i < pages.length; i++) {
+    var rect = pages[i].getBoundingClientRect();
+    if (rect.bottom > areaTop + 10) {
+      anchorEl = pages[i];
+      anchorOffset = rect.top - areaTop;
+      break;
+    }
+  }
+
+  // 토글
   document.body.classList.toggle('show-images');
   var btn = document.getElementById('toggle-images-btn');
   var on = document.body.classList.contains('show-images');
@@ -677,6 +694,12 @@ function toggleImages() {
     ? '\\ud83d\\udcc4 \\uc6d0\\ubcf8 \\uc228\\uae30\\uae30'
     : '\\ud83d\\udcc4 \\uc6d0\\ubcf8 \\ubcf4\\uae30';
   btn.classList.toggle('active', on);
+
+  // 스크롤 위치 복원: 같은 페이지가 같은 위치에 보이도록
+  if (anchorEl) {
+    var newRect = anchorEl.getBoundingClientRect();
+    content.scrollTop += (newRect.top - areaTop) - anchorOffset;
+  }
 }
 
 // 사이드바 토글
