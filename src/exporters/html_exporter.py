@@ -696,15 +696,30 @@ function toggleImages() {
     if (probeX > 0) {
       var caret = document.caretRangeFromPoint(probeX, probeY);
       if (caret && caret.startContainer.nodeType === 3) {
-        anchorRange = document.createRange();
-        var endOff = Math.min(caret.startOffset + 1, caret.startContainer.length);
-        anchorRange.setStart(caret.startContainer, caret.startOffset);
-        anchorRange.setEnd(caret.startContainer, endOff);
-        var rr = anchorRange.getBoundingClientRect();
-        if (rr.height > 0) {
-          anchorOffset = rr.top - contentRect.top;
-        } else {
-          anchorRange = null;
+        // 부모 텍스트 요소가 뷰포트 위로 확장되는지 확인
+        var parentEl = caret.startContainer.parentElement;
+        while (parentEl && !parentEl.matches(
+          'p, li, h1, h2, h3, td, th, .page-divider'
+        )) { parentEl = parentEl.parentElement; }
+        var useCaretAnchor = true;
+        if (parentEl) {
+          var parentRect = parentEl.getBoundingClientRect();
+          // 긴 문단이 뷰포트 위로 확장 → 비례 요소 앵커가 더 안정적
+          if (parentRect.top < contentRect.top - 20) {
+            useCaretAnchor = false;
+          }
+        }
+        if (useCaretAnchor) {
+          anchorRange = document.createRange();
+          var endOff = Math.min(caret.startOffset + 1, caret.startContainer.length);
+          anchorRange.setStart(caret.startContainer, caret.startOffset);
+          anchorRange.setEnd(caret.startContainer, endOff);
+          var rr = anchorRange.getBoundingClientRect();
+          if (rr.height > 0) {
+            anchorOffset = rr.top - contentRect.top;
+          } else {
+            anchorRange = null;
+          }
         }
       }
     }
