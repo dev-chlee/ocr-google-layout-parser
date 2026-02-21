@@ -99,6 +99,7 @@ class HTMLExporter:
             "V: \uc6d0\ubcf8 \ud1a0\uae00 | B: \ubaa9\ucc28 \ud1a0\uae00"
             " | C: Excel \ubcf5\uc0ac"
             " | P: \ud398\uc774\uc9c0 \ubdf0"
+            " | L: \uc5b8\uc5b4"
             " | \u2190\u2192: \ud398\uc774\uc9c0 \uc774\ub3d9"
             "</div>",
             "<script>",
@@ -165,6 +166,12 @@ class HTMLExporter:
 
         # 원본 보기 토글 버튼
         parts.append('  <div class="index-controls">')
+        parts.append(
+            '    <button id="lang-btn" class="lang-btn" '
+            'onclick="toggleLang()" '
+            'title="English / \ud55c\uad6d\uc5b4 (L)">'
+            "\U0001f310 EN</button>"
+        )
         parts.append(
             '    <button id="toggle-images-btn" class="toggle-images-btn" '
             'onclick="toggleImages()" '
@@ -543,6 +550,20 @@ body {
 .copy-btn:hover { background: #7d3c98; }
 .copy-btn.copied { background: #27ae60; }
 
+.lang-btn {
+  width: 100%;
+  background: #34495e;
+  color: #fff;
+  border: none;
+  padding: 8px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  margin-bottom: 6px;
+  transition: background 0.2s;
+}
+.lang-btn:hover { background: #2c3e50; }
+
 .index-list {
   list-style: none;
   overflow-y: auto;
@@ -793,6 +814,50 @@ body.page-view.show-images .image-col {
 # ── JavaScript ─────────────────────────────────────────────────
 
 _JS = """
+// 다국어 지원
+var _lang = 'ko';
+var _LANG = {
+  ko: {
+    showOriginal: '\\ud83d\\udcc4 \\uc6d0\\ubcf8 \\ubcf4\\uae30 (V)',
+    hideOriginal: '\\ud83d\\udcc4 \\uc6d0\\ubcf8 \\uc228\\uae30\\uae30 (V)',
+    pageView: '\\ud83d\\udcd6 \\ud398\\uc774\\uc9c0 \\ubdf0 (P)',
+    continuousView: '\\ud83d\\udcc4 \\uc5f0\\uc18d \\ubcf4\\uae30 (P)',
+    copyExcel: '\\ud83d\\udccb Excel \\ubcf5\\uc0ac (C)',
+    copied: '\\u2705 \\ubcf5\\uc0ac\\ub428!',
+    copyFailed: '\\u274c \\uc2e4\\ud328',
+    toc: '\\ubaa9\\ucc28',
+    collapseSidebar: '\\uc0ac\\uc774\\ub4dc\\ubc14 \\uc811\\uae30',
+    openToc: '\\ubaa9\\ucc28 \\uc5f4\\uae30',
+    showOriginalTitle: '\\uc6d0\\ubcf8 \\uc774\\ubbf8\\uc9c0 \\ubcf4\\uae30 (V)',
+    pageViewTitle: '\\ud398\\uc774\\uc9c0 \\ubdf0 (P)',
+    copyTitle: 'Excel \\ubd99\\uc5ec\\ub123\\uae30\\uc6a9 \\ubcf5\\uc0ac (C)',
+    shortcutHint: 'V: \\uc6d0\\ubcf8 \\ud1a0\\uae00 | B: \\ubaa9\\ucc28 \\ud1a0\\uae00 | C: Excel \\ubcf5\\uc0ac | P: \\ud398\\uc774\\uc9c0 \\ubdf0 | L: \\uc5b8\\uc5b4 | \\u2190\\u2192: \\ud398\\uc774\\uc9c0 \\uc774\\ub3d9',
+    noContent: '(\\ud14d\\uc2a4\\ud2b8 \\uc5c6\\uc74c)',
+    expandToc: '\\u25b6 \\ubaa9\\ucc28',
+    lang: '\\ud83c\\udf10 EN'
+  },
+  en: {
+    showOriginal: '\\ud83d\\udcc4 Show Original (V)',
+    hideOriginal: '\\ud83d\\udcc4 Hide Original (V)',
+    pageView: '\\ud83d\\udcd6 Page View (P)',
+    continuousView: '\\ud83d\\udcc4 Continuous (P)',
+    copyExcel: '\\ud83d\\udccb Copy Excel (C)',
+    copied: '\\u2705 Copied!',
+    copyFailed: '\\u274c Failed',
+    toc: 'Contents',
+    collapseSidebar: 'Collapse Sidebar',
+    openToc: 'Table of Contents',
+    showOriginalTitle: 'Show Original Images (V)',
+    pageViewTitle: 'Page View (P)',
+    copyTitle: 'Copy for Excel Paste (C)',
+    shortcutHint: 'V: Toggle Original | B: Toggle TOC | C: Copy Excel | P: Page View | L: Lang | \\u2190\\u2192: Pages',
+    noContent: '(No content)',
+    expandToc: '\\u25b6 TOC',
+    lang: '\\ud83c\\udf10 KO'
+  }
+};
+function t(key) { return _LANG[_lang][key] || key; }
+
 // 페이지 뷰 상태
 var _pageViewActive = false;
 var _currentPage = 1;
@@ -806,9 +871,7 @@ function toggleImages() {
     document.body.classList.toggle('show-images');
     var btn = document.getElementById('toggle-images-btn');
     var on = document.body.classList.contains('show-images');
-    btn.textContent = on
-      ? '\\ud83d\\udcc4 \\uc6d0\\ubcf8 \\uc228\\uae30\\uae30 (V)'
-      : '\\ud83d\\udcc4 \\uc6d0\\ubcf8 \\ubcf4\\uae30 (V)';
+    btn.textContent = on ? t('hideOriginal') : t('showOriginal');
     btn.classList.toggle('active', on);
     return;
   }
@@ -902,9 +965,7 @@ function toggleImages() {
   document.body.classList.toggle('show-images');
   var btn = document.getElementById('toggle-images-btn');
   var on = document.body.classList.contains('show-images');
-  btn.textContent = on
-    ? '\\ud83d\\udcc4 \\uc6d0\\ubcf8 \\uc228\\uae30\\uae30 (V)'
-    : '\\ud83d\\udcc4 \\uc6d0\\ubcf8 \\ubcf4\\uae30 (V)';
+  btn.textContent = on ? t('hideOriginal') : t('showOriginal');
   btn.classList.toggle('active', on);
 
   // 스크롤 위치 복원
@@ -958,10 +1019,10 @@ function copyForExcel() {
     var blob = new Blob([fullHtml], { type: 'text/html' });
     var item = new ClipboardItem({ 'text/html': blob });
     navigator.clipboard.write([item]).then(function() {
-      btn.textContent = '\\u2705 \\ubcf5\\uc0ac\\ub428!';
+      btn.textContent = t('copied');
       btn.classList.add('copied');
       setTimeout(function() {
-        btn.textContent = '\\ud83d\\udccb Excel \\ubcf5\\uc0ac (C)';
+        btn.textContent = t('copyExcel');
         btn.classList.remove('copied');
       }, 2000);
     }).catch(function() {
@@ -985,20 +1046,48 @@ function fallbackCopy(html, btn) {
   sel.addRange(range);
   try {
     document.execCommand('copy');
-    btn.textContent = '\\u2705 \\ubcf5\\uc0ac\\ub428!';
+    btn.textContent = t('copied');
     btn.classList.add('copied');
     setTimeout(function() {
-      btn.textContent = '\\ud83d\\udccb Excel \\ubcf5\\uc0ac (C)';
+      btn.textContent = t('copyExcel');
       btn.classList.remove('copied');
     }, 2000);
   } catch(e) {
-    btn.textContent = '\\u274c \\uc2e4\\ud328';
+    btn.textContent = t('copyFailed');
     setTimeout(function() {
-      btn.textContent = '\\ud83d\\udccb Excel \\ubcf5\\uc0ac (C)';
+      btn.textContent = t('copyExcel');
     }, 2000);
   }
   sel.removeAllRanges();
   document.body.removeChild(tmp);
+}
+
+// 언어 전환
+function toggleLang() {
+  _lang = (_lang === 'ko') ? 'en' : 'ko';
+  applyLang();
+}
+
+function applyLang() {
+  document.getElementById('toggle-images-btn').textContent =
+    document.body.classList.contains('show-images') ? t('hideOriginal') : t('showOriginal');
+  document.getElementById('page-view-btn').textContent =
+    _pageViewActive ? t('continuousView') : t('pageView');
+  document.getElementById('copy-btn').textContent = t('copyExcel');
+  document.getElementById('lang-btn').textContent = t('lang');
+
+  document.getElementById('toggle-images-btn').title = t('showOriginalTitle');
+  document.getElementById('page-view-btn').title = t('pageViewTitle');
+  document.getElementById('copy-btn').title = t('copyTitle');
+
+  var tocTitle = document.querySelector('.index-title');
+  if (tocTitle) tocTitle.textContent = t('toc');
+  var sidebarBtn = document.querySelector('.sidebar-toggle-btn');
+  if (sidebarBtn) sidebarBtn.title = t('collapseSidebar');
+  var expandTab = document.querySelector('.expand-tab');
+  if (expandTab) { expandTab.title = t('openToc'); expandTab.textContent = t('expandToc'); }
+  var hint = document.querySelector('.shortcut-hint');
+  if (hint) hint.textContent = t('shortcutHint');
 }
 
 // 사이드바 토글
@@ -1020,6 +1109,7 @@ document.addEventListener('keydown', function(e) {
   if (k === 'b' && !e.ctrlKey && !e.metaKey) toggleSidebar();
   if (k === 'c' && !e.ctrlKey && !e.metaKey) copyForExcel();
   if (k === 'p' && !e.ctrlKey && !e.metaKey) togglePageView();
+  if (k === 'l' && !e.ctrlKey && !e.metaKey) toggleLang();
   if (_pageViewActive && e.key === 'ArrowLeft') { e.preventDefault(); navigatePage(-1); }
   if (_pageViewActive && e.key === 'ArrowRight') { e.preventDefault(); navigatePage(1); }
 });
@@ -1172,7 +1262,7 @@ function togglePageView() {
     _pageViewActive = true;
     showPage(_currentPage);
 
-    btn.textContent = '\\ud83d\\udcc4 \\uc5f0\\uc18d \\ubcf4\\uae30 (P)';
+    btn.textContent = t('continuousView');
     btn.classList.add('active');
   } else {
     // 복귀
@@ -1191,7 +1281,7 @@ function togglePageView() {
       content.scrollTop = content._savedScrollTop;
     }
 
-    btn.textContent = '\\ud83d\\udcd6 \\ud398\\uc774\\uc9c0 \\ubdf0 (P)';
+    btn.textContent = t('pageView');
     btn.classList.remove('active');
   }
 }
