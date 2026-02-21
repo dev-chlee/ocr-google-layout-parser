@@ -87,9 +87,19 @@ class HTMLExporter:
             '<main class="content-area" id="content-area">',
             "\n".join(pages_html),
             "</main>",
+            '<div class="page-nav" id="page-nav">'
+            '<button class="page-nav-btn" onclick="navigatePage(-1)">'
+            "\u25c0</button>"
+            '<span class="page-nav-info" id="page-nav-info">'
+            "Page 1 / 1</span>"
+            '<button class="page-nav-btn" onclick="navigatePage(1)">'
+            "\u25b6</button>"
+            "</div>",
             '<div class="shortcut-hint">'
             "V: \uc6d0\ubcf8 \ud1a0\uae00 | B: \ubaa9\ucc28 \ud1a0\uae00"
             " | C: Excel \ubcf5\uc0ac"
+            " | P: \ud398\uc774\uc9c0 \ubdf0"
+            " | \u2190\u2192: \ud398\uc774\uc9c0 \uc774\ub3d9"
             "</div>",
             "<script>",
             _JS,
@@ -162,6 +172,12 @@ class HTMLExporter:
             "\U0001f4c4 \uc6d0\ubcf8 \ubcf4\uae30</button>"
         )
         parts.append(
+            '    <button id="page-view-btn" class="page-view-btn" '
+            'onclick="togglePageView()" '
+            'title="\ud398\uc774\uc9c0 \ubdf0 (P)">'
+            "\U0001f4d6 \ud398\uc774\uc9c0 \ubdf0</button>"
+        )
+        parts.append(
             '    <button id="copy-btn" class="copy-btn" '
             'onclick="copyForExcel()" '
             'title="Excel \ubd99\uc5ec\ub123\uae30\uc6a9 \ubcf5\uc0ac (C)">'
@@ -186,7 +202,7 @@ class HTMLExporter:
             level = h["level"]
             parts.append(
                 f'    <li class="index-item level-{level}" '
-                f'data-target="{h["id"]}">'
+                f'data-target="{h["id"]}" data-page="{h["page"]}">'
                 f'<a href="#{h["id"]}" title="{escaped_title}">'
                 f"{escaped_display}</a></li>"
             )
@@ -497,6 +513,21 @@ body {
 .toggle-images-btn:hover { background: #2980b9; }
 .toggle-images-btn.active { background: #27ae60; }
 
+.page-view-btn {
+  width: 100%;
+  background: #e67e22;
+  color: #fff;
+  border: none;
+  padding: 8px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  margin-top: 6px;
+  transition: background 0.2s;
+}
+.page-view-btn:hover { background: #d35400; }
+.page-view-btn.active { background: #27ae60; }
+
 .copy-btn {
   width: 100%;
   background: #8e44ad;
@@ -685,13 +716,89 @@ body.show-images .text-col { width: 50%; flex: none; }
   pointer-events: none;
   opacity: 0.5;
 }
+
+/* ── Page Navigation Bar ── */
+.page-nav {
+  display: none;
+  position: fixed;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(44,62,80,0.9);
+  color: #ecf0f1;
+  padding: 8px 16px;
+  border-radius: 8px;
+  z-index: 100;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+body.page-view .page-nav { display: flex; }
+.page-nav-btn {
+  background: none;
+  border: 1px solid rgba(255,255,255,0.3);
+  color: #ecf0f1;
+  padding: 4px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.15s;
+}
+.page-nav-btn:hover { background: rgba(255,255,255,0.15); }
+.page-nav-info { font-size: 13px; font-weight: 500; min-width: 100px; text-align: center; }
+
+/* ── Page View Mode ── */
+body.page-view .content-area {
+  overflow-y: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+body.page-view .page {
+  display: none;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+body.page-view .page.active-page {
+  display: flex;
+}
+body.page-view .page-divider {
+  flex-shrink: 0;
+}
+body.page-view .page-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+body.page-view .text-col {
+  width: 50%;
+  flex: none;
+  overflow-y: auto;
+  padding: 20px 28px;
+}
+body.page-view .image-col {
+  display: block;
+  width: 50%;
+  flex-shrink: 0;
+  overflow-y: auto;
+  border-left: 2px solid #3498db;
+  background: #f7f9fb;
+}
 """
 
 # ── JavaScript ─────────────────────────────────────────────────
 
 _JS = """
+// 페이지 뷰 상태
+var _pageViewActive = false;
+var _currentPage = 1;
+var _totalPages = 0;
+var _savedImagesState = false;
+
 // 원본 이미지 토글 (문자 단위 스크롤 위치 보존)
 function toggleImages() {
+  if (_pageViewActive) return;
   var content = document.getElementById('content-area');
   var contentRect = content.getBoundingClientRect();
 
@@ -898,6 +1005,9 @@ document.addEventListener('keydown', function(e) {
   if (e.key === 'v' && !e.ctrlKey && !e.metaKey) toggleImages();
   if (e.key === 'b' && !e.ctrlKey && !e.metaKey) toggleSidebar();
   if (e.key === 'c' && !e.ctrlKey && !e.metaKey) copyForExcel();
+  if (e.key === 'p' && !e.ctrlKey && !e.metaKey) togglePageView();
+  if (_pageViewActive && e.key === 'ArrowLeft') { e.preventDefault(); navigatePage(-1); }
+  if (_pageViewActive && e.key === 'ArrowRight') { e.preventDefault(); navigatePage(1); }
 });
 
 // DOM 로드 후 이벤트
@@ -914,16 +1024,29 @@ document.addEventListener('DOMContentLoaded', function() {
       e.preventDefault();
       var target = document.getElementById(item.dataset.target);
       if (!target) return;
-      var offset = target.getBoundingClientRect().top
-        - content.getBoundingClientRect().top
-        + content.scrollTop - 12;
-      content.scrollTo({ top: offset, behavior: 'smooth' });
+      if (_pageViewActive) {
+        var pageNum = parseInt(item.dataset.page) || 1;
+        showPage(pageNum);
+        var textCol = document.querySelector('.page.active-page .text-col');
+        if (textCol) {
+          var off = target.getBoundingClientRect().top
+            - textCol.getBoundingClientRect().top
+            + textCol.scrollTop - 12;
+          textCol.scrollTo({ top: off, behavior: 'smooth' });
+        }
+      } else {
+        var offset = target.getBoundingClientRect().top
+          - content.getBoundingClientRect().top
+          + content.scrollTop - 12;
+        content.scrollTo({ top: offset, behavior: 'smooth' });
+      }
     });
   });
 
   // 스크롤 시 현재 heading 하이라이트
   var ticking = false;
   content.addEventListener('scroll', function() {
+    if (_pageViewActive) return;
     if (ticking) return;
     ticking = true;
     requestAnimationFrame(function() {
@@ -949,5 +1072,148 @@ document.addEventListener('DOMContentLoaded', function() {
       ticking = false;
     });
   });
+
+  // 페이지 뷰: 총 페이지 수 초기화
+  _totalPages = content.querySelectorAll('.page').length;
+
+  // 페이지 뷰: text-col 스크롤 시 heading 하이라이트
+  content.querySelectorAll('.text-col').forEach(function(tc) {
+    tc.addEventListener('scroll', function() {
+      if (!_pageViewActive) return;
+      var tcRect = tc.getBoundingClientRect();
+      var activeId = null;
+      tc.querySelectorAll('h1[id], h2[id], h3[id]').forEach(function(h) {
+        if (h.getBoundingClientRect().top - tcRect.top <= 80) {
+          activeId = h.id;
+        }
+      });
+      indexItems.forEach(function(item) {
+        var isActive = item.dataset.target === activeId;
+        item.classList.toggle('active', isActive);
+        if (isActive) {
+          var list = document.getElementById('index-list');
+          var ir = item.getBoundingClientRect();
+          var lr = list.getBoundingClientRect();
+          if (ir.top < lr.top || ir.bottom > lr.bottom) {
+            item.scrollIntoView({ block: 'nearest' });
+          }
+        }
+      });
+    });
+  });
 });
+
+// 페이지 뷰 함수들
+function findCurrentVisiblePage() {
+  var content = document.getElementById('content-area');
+  var contentRect = content.getBoundingClientRect();
+  var centerY = contentRect.top + contentRect.height / 2;
+  var pages = content.querySelectorAll('.page');
+  for (var i = 0; i < pages.length; i++) {
+    var r = pages[i].getBoundingClientRect();
+    if (r.top <= centerY && r.bottom >= centerY) {
+      return i + 1;
+    }
+  }
+  // 폴백: 뷰포트 상단 근처 페이지
+  for (var j = 0; j < pages.length; j++) {
+    var r2 = pages[j].getBoundingClientRect();
+    if (r2.bottom > contentRect.top + 50) {
+      return j + 1;
+    }
+  }
+  return 1;
+}
+
+function showPage(n) {
+  if (n < 1) n = 1;
+  if (n > _totalPages) n = _totalPages;
+  _currentPage = n;
+  var content = document.getElementById('content-area');
+  var pages = content.querySelectorAll('.page');
+  pages.forEach(function(p, i) {
+    p.classList.toggle('active-page', i + 1 === n);
+  });
+  var info = document.getElementById('page-nav-info');
+  if (info) info.textContent = 'Page ' + n + ' / ' + _totalPages;
+  updateTocForPage(n);
+}
+
+function navigatePage(delta) {
+  if (!_pageViewActive) return;
+  showPage(_currentPage + delta);
+}
+
+function togglePageView() {
+  var content = document.getElementById('content-area');
+  var btn = document.getElementById('page-view-btn');
+
+  if (!_pageViewActive) {
+    // 진입: 현재 보이는 페이지 감지
+    _currentPage = findCurrentVisiblePage();
+    content._savedScrollTop = content.scrollTop;
+
+    // 이미지 상태 저장 후 강제 표시
+    _savedImagesState = document.body.classList.contains('show-images');
+    document.body.classList.add('show-images');
+    var imgBtn = document.getElementById('toggle-images-btn');
+    imgBtn.textContent = '\\ud83d\\udcc4 \\uc6d0\\ubcf8 \\uc228\\uae30\\uae30';
+    imgBtn.classList.add('active');
+
+    // 페이지 뷰 모드 활성화
+    document.body.classList.add('page-view');
+    _pageViewActive = true;
+    showPage(_currentPage);
+
+    btn.textContent = '\\ud83d\\udcc4 \\uc5f0\\uc18d \\ubcf4\\uae30';
+    btn.classList.add('active');
+  } else {
+    // 복귀
+    _pageViewActive = false;
+    document.body.classList.remove('page-view');
+    var pages = content.querySelectorAll('.page');
+    pages.forEach(function(p) { p.classList.remove('active-page'); });
+
+    // 이미지 상태 복원
+    if (!_savedImagesState) {
+      document.body.classList.remove('show-images');
+      var imgBtn2 = document.getElementById('toggle-images-btn');
+      imgBtn2.textContent = '\\ud83d\\udcc4 \\uc6d0\\ubcf8 \\ubcf4\\uae30';
+      imgBtn2.classList.remove('active');
+    }
+
+    // 마지막 본 페이지 위치로 스크롤 복원
+    var targetPage = document.getElementById('page-' + _currentPage);
+    if (targetPage) {
+      void content.offsetHeight;
+      var offset = targetPage.offsetTop - 12;
+      content.scrollTop = offset;
+    } else if (content._savedScrollTop != null) {
+      content.scrollTop = content._savedScrollTop;
+    }
+
+    btn.textContent = '\\ud83d\\udcd6 \\ud398\\uc774\\uc9c0 \\ubdf0';
+    btn.classList.remove('active');
+  }
+}
+
+function updateTocForPage(pageNum) {
+  var indexItems = document.querySelectorAll('.index-item');
+  var firstMatch = null;
+  indexItems.forEach(function(item) {
+    item.classList.remove('active');
+    if (!firstMatch && parseInt(item.dataset.page) === pageNum) {
+      firstMatch = item;
+    }
+  });
+  if (firstMatch) {
+    firstMatch.classList.add('active');
+    var list = document.getElementById('index-list');
+    var ir = firstMatch.getBoundingClientRect();
+    var lr = list.getBoundingClientRect();
+    if (ir.top < lr.top || ir.bottom > lr.bottom) {
+      firstMatch.scrollIntoView({ block: 'nearest' });
+    }
+  }
+}
 """
