@@ -668,23 +668,32 @@ body.show-images .text-col { width: 50%; flex: none; }
 # ── JavaScript ─────────────────────────────────────────────────
 
 _JS = """
-// 원본 이미지 토글 (스크롤 위치 보존)
+// 원본 이미지 토글 (텍스트 요소 기준 스크롤 위치 보존)
 function toggleImages() {
   var content = document.getElementById('content-area');
-  var areaTop = content.getBoundingClientRect().top;
+  var contentTop = content.getBoundingClientRect().top;
 
-  // 현재 뷰포트 상단에 보이는 페이지를 찾아서 위치 기억
-  var pages = document.querySelectorAll('.page');
+  // 텍스트 패널 내 실제 텍스트 요소 중 뷰포트 상단에 보이는 것을 앵커로
+  var els = content.querySelectorAll(
+    '.text-col h1, .text-col h2, .text-col h3, .text-col p, '
+    + '.text-col li, .text-col table, .page-divider'
+  );
   var anchorEl = null;
   var anchorOffset = 0;
-  for (var i = 0; i < pages.length; i++) {
-    var rect = pages[i].getBoundingClientRect();
-    if (rect.bottom > areaTop + 10) {
-      anchorEl = pages[i];
-      anchorOffset = rect.top - areaTop;
+  for (var i = 0; i < els.length; i++) {
+    var rect = els[i].getBoundingClientRect();
+    if (rect.bottom > contentTop + 10) {
+      anchorEl = els[i];
+      anchorOffset = rect.top - contentTop;
       break;
     }
   }
+
+  // transition 일시 비활성화 (레이아웃 즉시 반영을 위해)
+  var textCols = content.querySelectorAll('.text-col');
+  var imageCols = content.querySelectorAll('.image-col');
+  textCols.forEach(function(el) { el.style.transition = 'none'; });
+  imageCols.forEach(function(el) { el.style.transition = 'none'; });
 
   // 토글
   document.body.classList.toggle('show-images');
@@ -695,11 +704,19 @@ function toggleImages() {
     : '\\ud83d\\udcc4 \\uc6d0\\ubcf8 \\ubcf4\\uae30';
   btn.classList.toggle('active', on);
 
-  // 스크롤 위치 복원: 같은 페이지가 같은 위치에 보이도록
+  // 스크롤 위치 복원: 레이아웃 강제 재계산 후 같은 요소가 같은 위치에
   if (anchorEl) {
+    void content.offsetHeight;
+    var newContentTop = content.getBoundingClientRect().top;
     var newRect = anchorEl.getBoundingClientRect();
-    content.scrollTop += (newRect.top - areaTop) - anchorOffset;
+    content.scrollTop += (newRect.top - newContentTop) - anchorOffset;
   }
+
+  // transition 복원
+  requestAnimationFrame(function() {
+    textCols.forEach(function(el) { el.style.transition = ''; });
+    imageCols.forEach(function(el) { el.style.transition = ''; });
+  });
 }
 
 // 사이드바 토글
