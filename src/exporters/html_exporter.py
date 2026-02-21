@@ -1002,10 +1002,11 @@ function expandSidebar() {
 // 키보드 단축키
 document.addEventListener('keydown', function(e) {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-  if (e.key === 'v' && !e.ctrlKey && !e.metaKey) toggleImages();
-  if (e.key === 'b' && !e.ctrlKey && !e.metaKey) toggleSidebar();
-  if (e.key === 'c' && !e.ctrlKey && !e.metaKey) copyForExcel();
-  if (e.key === 'p' && !e.ctrlKey && !e.metaKey) togglePageView();
+  var k = e.key.toLowerCase();
+  if (k === 'v' && !e.ctrlKey && !e.metaKey) toggleImages();
+  if (k === 'b' && !e.ctrlKey && !e.metaKey) toggleSidebar();
+  if (k === 'c' && !e.ctrlKey && !e.metaKey) copyForExcel();
+  if (k === 'p' && !e.ctrlKey && !e.metaKey) togglePageView();
   if (_pageViewActive && e.key === 'ArrowLeft') { e.preventDefault(); navigatePage(-1); }
   if (_pageViewActive && e.key === 'ArrowRight') { e.preventDefault(); navigatePage(1); }
 });
