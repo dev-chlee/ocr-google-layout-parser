@@ -668,28 +668,74 @@ body.show-images .text-col { width: 50%; flex: none; }
 # ── JavaScript ─────────────────────────────────────────────────
 
 _JS = """
-// 원본 이미지 토글 (텍스트 요소 기준 스크롤 위치 보존)
+// 원본 이미지 토글 (문자 단위 스크롤 위치 보존)
 function toggleImages() {
   var content = document.getElementById('content-area');
-  var contentTop = content.getBoundingClientRect().top;
+  var contentRect = content.getBoundingClientRect();
 
-  // 텍스트 패널 내 실제 텍스트 요소 중 뷰포트 상단에 보이는 것을 앵커로
-  var els = content.querySelectorAll(
-    '.text-col h1, .text-col h2, .text-col h3, .text-col p, '
-    + '.text-col li, .text-col table, .page-divider'
-  );
-  var anchorEl = null;
+  // 1차: caretRangeFromPoint로 뷰포트 상단의 정확한 텍스트 문자를 앵커
+  var anchorRange = null;
   var anchorOffset = 0;
-  for (var i = 0; i < els.length; i++) {
-    var rect = els[i].getBoundingClientRect();
-    if (rect.bottom > contentTop + 10) {
-      anchorEl = els[i];
-      anchorOffset = rect.top - contentTop;
-      break;
+  var anchorEl = null;
+  var anchorElOffset = 0;
+  var anchorElHeight = 0;
+  var useProportional = false;
+
+  if (document.caretRangeFromPoint) {
+    // 텍스트 열 영역 탐색
+    var allTextCols = content.querySelectorAll('.text-col');
+    var probeX = 0, probeY = contentRect.top + 10;
+    for (var tc = 0; tc < allTextCols.length; tc++) {
+      var tcr = allTextCols[tc].getBoundingClientRect();
+      if (tcr.bottom > contentRect.top && tcr.top < contentRect.bottom) {
+        probeX = tcr.left + 30;
+        probeY = Math.max(contentRect.top + 10, tcr.top + 5);
+        break;
+      }
+    }
+    if (probeX > 0) {
+      var caret = document.caretRangeFromPoint(probeX, probeY);
+      if (caret && caret.startContainer.nodeType === 3) {
+        anchorRange = document.createRange();
+        var endOff = Math.min(caret.startOffset + 1, caret.startContainer.length);
+        anchorRange.setStart(caret.startContainer, caret.startOffset);
+        anchorRange.setEnd(caret.startContainer, endOff);
+        var rr = anchorRange.getBoundingClientRect();
+        if (rr.height > 0) {
+          anchorOffset = rr.top - contentRect.top;
+        } else {
+          anchorRange = null;
+        }
+      }
     }
   }
 
-  // transition 일시 비활성화 (레이아웃 즉시 반영을 위해)
+  // 2차 폴백: 요소 단위 앵커
+  if (!anchorRange) {
+    var els = content.querySelectorAll(
+      '.text-col h1, .text-col h2, .text-col h3, .text-col p, '
+      + '.text-col li, .text-col table, .page-divider'
+    );
+    for (var i = 0; i < els.length; i++) {
+      var rect = els[i].getBoundingClientRect();
+      if (rect.bottom <= contentRect.top) continue;
+      if (rect.top >= contentRect.top - 10) {
+        anchorEl = els[i];
+        anchorElOffset = rect.top - contentRect.top;
+        anchorElHeight = rect.height;
+        useProportional = false;
+        break;
+      }
+      if (!anchorEl) {
+        anchorEl = els[i];
+        anchorElOffset = rect.top - contentRect.top;
+        anchorElHeight = rect.height;
+        useProportional = true;
+      }
+    }
+  }
+
+  // transition 일시 비활성화
   var textCols = content.querySelectorAll('.text-col');
   var imageCols = content.querySelectorAll('.image-col');
   textCols.forEach(function(el) { el.style.transition = 'none'; });
@@ -704,12 +750,24 @@ function toggleImages() {
     : '\\ud83d\\udcc4 \\uc6d0\\ubcf8 \\ubcf4\\uae30';
   btn.classList.toggle('active', on);
 
-  // 스크롤 위치 복원: 레이아웃 강제 재계산 후 같은 요소가 같은 위치에
-  if (anchorEl) {
-    void content.offsetHeight;
-    var newContentTop = content.getBoundingClientRect().top;
+  // 스크롤 위치 복원
+  void content.offsetHeight;
+  var newContentRect = content.getBoundingClientRect();
+
+  if (anchorRange) {
+    // 문자 단위 정밀 복원
+    var newRR = anchorRange.getBoundingClientRect();
+    content.scrollTop += (newRR.top - newContentRect.top) - anchorOffset;
+  } else if (anchorEl) {
     var newRect = anchorEl.getBoundingClientRect();
-    content.scrollTop += (newRect.top - newContentTop) - anchorOffset;
+    var currentOffset = newRect.top - newContentRect.top;
+    var desiredOffset;
+    if (useProportional && anchorElHeight > 0) {
+      desiredOffset = anchorElOffset * newRect.height / anchorElHeight;
+    } else {
+      desiredOffset = anchorElOffset;
+    }
+    content.scrollTop += currentOffset - desiredOffset;
   }
 
   // transition 복원
