@@ -1,7 +1,11 @@
+import logging
+
 from google.api_core.client_options import ClientOptions
 from google.cloud import documentai
 
 from src.config import DocumentAIConfig
+
+logger = logging.getLogger("docai")
 
 
 def create_client(location: str) -> documentai.DocumentProcessorServiceClient:
@@ -66,7 +70,7 @@ def process_document(
 
         cache = Path(cache_path)
         if cache.exists():
-            print(f"캐시된 응답 로드: {cache_path}")
+            logger.info(f"캐시된 응답 로드: {cache_path}")
             return documentai.Document.from_json(cache.read_text(encoding="utf-8"))
 
     client = create_client(config.location)
@@ -107,6 +111,6 @@ def process_document(
         cache = Path(cache_path)
         cache.parent.mkdir(parents=True, exist_ok=True)
         cache.write_text(type(doc).to_json(doc), encoding="utf-8")
-        print(f"응답 캐시 저장: {cache_path}")
+        logger.info(f"응답 캐시 저장: {cache_path}")
 
     return doc

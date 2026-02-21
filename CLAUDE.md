@@ -11,12 +11,13 @@ GCP Document AI Layout Parser를 활용한 PDF OCR 파서. PDF를 처리하여 M
 ```
 src/
 ├── config.py              # DocumentAIConfig + ProcessingConfig - .env 기반
+├── logger.py              # 로거 설정 + 타이밍 측정 + 파일 크기 포맷
 ├── processor.py           # process_document() - Layout Parser API 호출
-├── batch_processor.py     # BatchProcessor - GCS 대용량 배치 처리 (500p)
+├── batch_processor.py     # BatchProcessor - GCS 다중 파일 배치 처리 (500p)
 ├── exporters/
 │   ├── html_exporter.py   # HTMLExporter - PyMuPDF 페이지 렌더링 + 텍스트 토글
 │   └── markdown_exporter.py # MarkdownExporter - document_layout.blocks 기반
-└── main.py                # CLI 진입점 (argparse)
+└── main.py                # CLI 진입점 (argparse) - 단일/다중 파일 라우팅
 ```
 
 ## Commands
@@ -36,6 +37,15 @@ uv run python -m src.main --file samples/sample4-p10.pdf --cache output/cache.js
 
 # 15페이지 초과 PDF → 자동 GCS 배치 처리 (GCS_BUCKET 설정 필요)
 uv run python -m src.main --file samples/long-sample-p20.pdf --output output
+
+# 다중 파일 배치 처리 (2개 이상 → 무조건 배치, 파일별 폴더 출력)
+uv run python -m src.main --file a.pdf b.pdf c.pdf --output output
+
+# 폴더 내 모든 PDF 배치 처리
+uv run python -m src.main --dir ./pdfs/ --output output
+
+# --file과 --dir 혼합 사용
+uv run python -m src.main --file extra.pdf --dir ./pdfs/ --output output
 
 # GCS 파일 처리
 uv run python -m src.main --gcs gs://bucket/file.pdf
@@ -63,11 +73,15 @@ uv run python -m src.main --batch gs://bucket/input/ --batch-output gs://bucket/
 - `LayoutListEntry`: `blocks` (NOT text_block)
 - `LayoutConfig`: `chunking_config`, `return_images`, `return_bounding_boxes`
 
-### 자동 배치 처리 (15페이지 초과)
-- `--file`로 로컬 PDF 처리 시 PyMuPDF로 페이지 수 확인
-- 15페이지 이하 → 온라인 API (기존 방식)
-- 15페이지 초과 → GCS 업로드 → 배치 처리 → 결과 다운로드 → GCS 정리
+### 배치 처리 라우팅
+- 단일 파일 ≤15페이지 → 온라인 API
+- 단일 파일 >15페이지 → GCS 배치 (자동 전환)
+- 2개 이상 파일 → 무조건 GCS 배치 1회 (페이지 수 무관)
+- GCS 경로: `batch_{timestamp}/input/`, `batch_{timestamp}/output/`
+- 배치 후 GCS 파일은 삭제하지 않음 (수동 정리)
+- 다중 파일 출력: `output/{파일명}/` 폴더별 생성
 - `GCS_BUCKET` 환경변수 필요 (`.env`에 설정)
+- 처리 로그: `output/processing.log`에 기록
 
 ## Configuration
 
