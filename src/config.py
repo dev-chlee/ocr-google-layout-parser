@@ -39,6 +39,9 @@ class DocumentAIConfig:
     location: str = "us"
     processor_id: str = ""
     gcs_bucket: str | None = None
+    max_online_pages: int = 15
+    online_timeout: int = 600
+    batch_timeout: int = 3600
     processing: ProcessingConfig = field(default_factory=ProcessingConfig)
 
     @classmethod
@@ -76,5 +79,8 @@ class DocumentAIConfig:
             location=os.environ.get("GCP_LOCATION", "us"),
             processor_id=os.environ["DOCUMENTAI_PROCESSOR_ID"],
             gcs_bucket=os.environ.get("GCS_BUCKET"),
+            max_online_pages=int(os.environ.get("MAX_ONLINE_PAGES", "15")),
+            online_timeout=int(os.environ.get("ONLINE_TIMEOUT", "600")),
+            batch_timeout=int(os.environ.get("BATCH_TIMEOUT", "3600")),
             processing=processing,
         )

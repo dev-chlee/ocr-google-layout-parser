@@ -19,9 +19,11 @@ class BatchProcessor:
         self,
         pdf_path: str,
         output_dir: str,
-        timeout: int = 3600,
+        timeout: int | None = None,
     ) -> documentai.Document:
         """로컬 PDF → GCS 업로드 → 배치 처리 → 결과 다운로드 → GCS 정리."""
+        if timeout is None:
+            timeout = self.config.batch_timeout
         bucket_name = self.config.gcs_bucket
         if not bucket_name:
             raise ValueError(
@@ -173,8 +175,10 @@ class BatchProcessor:
         self,
         input_gcs_prefix: str,
         output_gcs_prefix: str,
-        timeout: int = 3600,
+        timeout: int | None = None,
     ) -> documentai.BatchProcessResponse:
+        if timeout is None:
+            timeout = self.config.batch_timeout
         # 프로세서에서 설정된 기본 버전 사용
         name = self.client.processor_path(
             self.config.project_id,

@@ -97,7 +97,7 @@ def process_document(
 
     request.process_options = build_process_options(config)
 
-    result = client.process_document(request=request, timeout=600)
+    result = client.process_document(request=request, timeout=config.online_timeout)
     doc = result.document
 
     # 응답 캐시 저장

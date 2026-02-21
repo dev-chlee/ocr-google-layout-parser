@@ -25,7 +25,6 @@ from src.batch_processor import BatchProcessor
 from src.exporters.html_exporter import HTMLExporter
 from src.exporters.markdown_exporter import MarkdownExporter
 
-MAX_ONLINE_PAGES = 15
 
 
 def main():
@@ -101,16 +100,16 @@ def _run_single(config: DocumentAIConfig, args) -> None:
         print(f"처리 중: {args.gcs}")
 
     # 15페이지 초과 로컬 파일 → 자동 배치 처리
-    use_batch = args.file and page_count > MAX_ONLINE_PAGES
+    use_batch = args.file and page_count > config.max_online_pages
 
     if use_batch:
         if not config.gcs_bucket:
             raise ValueError(
-                f"PDF가 {page_count}페이지로 온라인 처리 한도({MAX_ONLINE_PAGES}페이지)를 "
+                f"PDF가 {page_count}페이지로 온라인 처리 한도({config.max_online_pages}페이지)를 "
                 f"초과합니다. 배치 처리를 위해 .env에 GCS_BUCKET을 설정하세요."
             )
         print(
-            f"페이지 수 {page_count} > {MAX_ONLINE_PAGES} → "
+            f"페이지 수 {page_count} > {config.max_online_pages} → "
             f"GCS 배치 처리로 전환 (버킷: {config.gcs_bucket})"
         )
         processor = BatchProcessor(config)
