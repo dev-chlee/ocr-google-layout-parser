@@ -6,10 +6,11 @@ from google.cloud import documentai
 
 
 class HTMLExporter:
-    """HTML 출력 - 좌/우 패널 레이아웃.
+    """HTML 출력 - 3열 레이아웃.
 
-    - 기본: 텍스트만 표시 (전체 너비)
-    - 원본 보기 토글: 좌측 PDF 이미지 + 우측 텍스트 (병렬 비교)
+    1열: 목차 인덱스 (고정 사이드바, DART 스타일)
+    2열: OCR 파싱 텍스트 (메인 콘텐츠)
+    3열: 원본 PDF 이미지 (기본 숨김, 토글)
     """
 
     def __init__(
@@ -25,6 +26,8 @@ class HTMLExporter:
         self.base_name = ""
         self.output_dir = Path(".")
         self.images_dir = Path(".")
+        self.headings: list[dict] = []
+        self.heading_counter = 0
 
     def export(self, output_path: str) -> None:
         self.output_dir = Path(output_path).parent
@@ -39,27 +42,11 @@ class HTMLExporter:
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(html_content)
 
+    # ── HTML 조립 ──────────────────────────────────────────────
+
     def _build_html(self) -> str:
-        parts: list[str] = [
-            "<!DOCTYPE html>",
-            '<html lang="ko">',
-            "<head>",
-            '<meta charset="utf-8">',
-            '<meta name="viewport" content="width=device-width, initial-scale=1.0">',
-            "<title>OCR Result</title>",
-            "<style>",
-            _CSS,
-            "</style>",
-            "<script>",
-            _JS,
-            "</script>",
-            "</head>",
-            "<body>",
-            '<div class="toolbar">',
-            '  <button id="toggle-btn" onclick="toggleImages()">'
-            "\U0001f4c4 \uc6d0\ubcf8 \ubcf4\uae30</button>",
-            "</div>",
-        ]
+        self.headings = []
+        self.heading_counter = 0
 
         pdf_doc = None
         page_count = 0
@@ -69,46 +56,138 @@ class HTMLExporter:
 
         page_blocks = self._group_blocks_by_page()
 
+        # 페이지별 HTML 렌더링 (heading 수집 포함)
+        pages_html: list[str] = []
         for page_num in range(page_count):
-            page_num_1based = page_num + 1
-            parts.append('<div class="page">')
-            parts.append(
-                f'  <div class="page-header">Page {page_num_1based}</div>'
+            pages_html.append(
+                self._render_page_section(pdf_doc, page_num, page_blocks)
             )
-            parts.append('  <div class="page-content">')
-
-            # 좌측: 이미지 패널 (기본 숨김)
-            parts.append('    <div class="image-pane">')
-            if pdf_doc:
-                img_tag = self._render_page_image(pdf_doc, page_num)
-                parts.append(f"      {img_tag}")
-            parts.append("    </div>")
-
-            # 우측: 텍스트 패널
-            parts.append('    <div class="text-pane">')
-            items = page_blocks.get(page_num_1based, [])
-            if items:
-                for block, mode in items:
-                    if mode == "text_only":
-                        parts.append(self._render_block_text_only(block))
-                    else:
-                        parts.append(self._render_block_html(block))
-            else:
-                parts.append(
-                    '<p class="empty-page">'
-                    "(\ud14d\uc2a4\ud2b8 \uc5c6\uc74c)</p>"
-                )
-            parts.append("    </div>")
-
-            parts.append("  </div>")  # .page-content
-            parts.append("</div>")  # .page
 
         if pdf_doc:
             pdf_doc.close()
 
-        parts.append("</body>")
-        parts.append("</html>")
+        # 수집된 heading으로 인덱스 생성
+        index_html = self._build_index()
+
+        parts = [
+            "<!DOCTYPE html>",
+            '<html lang="ko">',
+            "<head>",
+            '<meta charset="utf-8">',
+            '<meta name="viewport" content="width=device-width, initial-scale=1.0">',
+            "<title>OCR Result</title>",
+            "<style>",
+            _CSS,
+            "</style>",
+            "</head>",
+            "<body>",
+            index_html,
+            '<button class="expand-tab" onclick="expandSidebar()" '
+            'title="\ubaa9\ucc28 \uc5f4\uae30">\u25b6 \ubaa9\ucc28</button>',
+            '<main class="content-area" id="content-area">',
+            "\n".join(pages_html),
+            "</main>",
+            '<div class="shortcut-hint">'
+            "V: \uc6d0\ubcf8 \ud1a0\uae00 | B: \ubaa9\ucc28 \ud1a0\uae00"
+            "</div>",
+            "<script>",
+            _JS,
+            "</script>",
+            "</body>",
+            "</html>",
+        ]
         return "\n".join(parts)
+
+    def _render_page_section(
+        self,
+        pdf_doc: fitz.Document | None,
+        page_num: int,
+        page_blocks: dict[int, list],
+    ) -> str:
+        """페이지 섹션 렌더링: 텍스트 열 + 이미지 열."""
+        pn = page_num + 1
+        parts = [f'<section class="page" id="page-{pn}">']
+        parts.append(f'  <div class="page-divider">Page {pn}</div>')
+        parts.append('  <div class="page-body">')
+
+        # 텍스트 열
+        parts.append('    <div class="text-col">')
+        items = page_blocks.get(pn, [])
+        if items:
+            for block, mode in items:
+                if mode == "text_only":
+                    parts.append(
+                        self._render_block_text_only(block, pn)
+                    )
+                else:
+                    parts.append(self._render_block_html(block, pn))
+        else:
+            parts.append(
+                '<p class="empty-page">'
+                "(\ud14d\uc2a4\ud2b8 \uc5c6\uc74c)</p>"
+            )
+        parts.append("    </div>")
+
+        # 이미지 열
+        parts.append('    <div class="image-col">')
+        if pdf_doc:
+            img_tag = self._render_page_image(pdf_doc, page_num)
+            parts.append(f"      {img_tag}")
+        parts.append("    </div>")
+
+        parts.append("  </div>")
+        parts.append("</section>")
+        return "\n".join(parts)
+
+    def _build_index(self) -> str:
+        """수집된 heading 정보로 DART 스타일 목차 사이드바 생성."""
+        parts = ['<nav class="index-sidebar" id="index-sidebar">']
+        parts.append('  <div class="index-header">')
+        parts.append('    <span class="index-title">\ubaa9\ucc28</span>')
+        parts.append(
+            '    <button class="sidebar-toggle-btn" '
+            'onclick="toggleSidebar()" '
+            'title="\uc0ac\uc774\ub4dc\ubc14 \uc811\uae30">'
+            "\u25c0</button>"
+        )
+        parts.append("  </div>")
+
+        # 원본 보기 토글 버튼
+        parts.append('  <div class="index-controls">')
+        parts.append(
+            '    <button id="toggle-images-btn" class="toggle-images-btn" '
+            'onclick="toggleImages()" '
+            'title="\uc6d0\ubcf8 \uc774\ubbf8\uc9c0 \ubcf4\uae30 (V)">'
+            "\U0001f4c4 \uc6d0\ubcf8 \ubcf4\uae30</button>"
+        )
+        parts.append("  </div>")
+
+        # 목차 리스트
+        parts.append('  <ul class="index-list" id="index-list">')
+        current_page = 0
+        for h in self.headings:
+            if h["page"] != current_page:
+                current_page = h["page"]
+                parts.append(
+                    f'    <li class="index-page-marker">'
+                    f"P.{current_page}</li>"
+                )
+            text = h["text"]
+            display = text if len(text) <= 30 else text[:28] + "\u2026"
+            escaped_display = _html_escape(display)
+            escaped_title = _html_escape(text)
+            level = h["level"]
+            parts.append(
+                f'    <li class="index-item level-{level}" '
+                f'data-target="{h["id"]}">'
+                f'<a href="#{h["id"]}" title="{escaped_title}">'
+                f"{escaped_display}</a></li>"
+            )
+        parts.append("  </ul>")
+        parts.append("</nav>")
+        return "\n".join(parts)
+
+    # ── 페이지 분배 ────────────────────────────────────────────
 
     def _group_blocks_by_page(self) -> dict[int, list]:
         """document_layout.blocks를 page_span 기준으로 페이지별 분배.
@@ -139,7 +218,6 @@ class HTMLExporter:
         page_end = block.page_span.page_end if block.page_span else page_start
 
         if page_start == page_end:
-            # 단일 페이지 블록: 통째로 할당
             page_blocks.setdefault(page_start, []).append((block, "full"))
             return
 
@@ -149,15 +227,15 @@ class HTMLExporter:
                 page_blocks.setdefault(page_start, []).append(
                     (block, "text_only")
                 )
-            # 자식 블록을 각 페이지에 재귀 분배
             if block.text_block.blocks:
                 for child in block.text_block.blocks:
                     self._distribute_block(child, page_blocks)
         elif block.list_block:
-            # 리스트 블록은 통째로 시작 페이지에 할당
             page_blocks.setdefault(page_start, []).append((block, "full"))
         elif block.table_block:
             page_blocks.setdefault(page_start, []).append((block, "full"))
+
+    # ── 렌더링 ─────────────────────────────────────────────────
 
     def _render_page_image(self, pdf_doc: fitz.Document, page_num: int) -> str:
         """PyMuPDF로 페이지를 이미지로 렌더링."""
@@ -184,9 +262,20 @@ class HTMLExporter:
                 f'src="{rel_path}" alt="Page {page_num + 1}"/>'
             )
 
+    def _make_heading(self, text: str, level: int, page_num: int) -> str:
+        """heading HTML 생성 및 인덱스용 정보 수집."""
+        self.heading_counter += 1
+        hid = f"h-{self.heading_counter}"
+        self.headings.append(
+            {"id": hid, "text": text, "level": level, "page": page_num}
+        )
+        escaped = _html_escape(text)
+        return f'<h{level} id="{hid}">{escaped}</h{level}>'
+
     def _render_block_text_only(
         self,
         block: documentai.Document.DocumentLayout.DocumentLayoutBlock,
+        page_num: int = 0,
     ) -> str:
         """블록의 자기 텍스트만 렌더링 (자식 블록 제외). 멀티 페이지 부모용."""
         if not block.text_block:
@@ -194,7 +283,6 @@ class HTMLExporter:
         text = block.text_block.text.strip() if block.text_block.text else ""
         if not text:
             return ""
-        escaped = _html_escape(text)
         block_type = block.text_block.type_ or ""
         if "heading" in block_type:
             level = 1
@@ -202,14 +290,15 @@ class HTMLExporter:
                 if ch.isdigit():
                     level = int(ch)
                     break
-            return f"<h{level}>{escaped}</h{level}>"
+            return self._make_heading(text, level, page_num)
         elif block_type == "footer":
             return ""
-        return f"<p>{escaped}</p>"
+        return f"<p>{_html_escape(text)}</p>"
 
     def _render_block_html(
         self,
         block: documentai.Document.DocumentLayout.DocumentLayoutBlock,
+        page_num: int = 0,
     ) -> str:
         """document_layout 블록을 HTML로 렌더링 (자식 블록 재귀 포함)."""
         parts: list[str] = []
@@ -219,24 +308,23 @@ class HTMLExporter:
             block_type = block.text_block.type_ or ""
 
             if text:
-                escaped = _html_escape(text)
                 if "heading" in block_type:
                     level = 1
                     for ch in block_type:
                         if ch.isdigit():
                             level = int(ch)
                             break
-                    parts.append(f"<h{level}>{escaped}</h{level}>")
+                    parts.append(self._make_heading(text, level, page_num))
                 elif block_type == "list_item":
-                    parts.append(f"<li>{escaped}</li>")
+                    parts.append(f"<li>{_html_escape(text)}</li>")
                 elif block_type == "footer":
                     pass
                 else:
-                    parts.append(f"<p>{escaped}</p>")
+                    parts.append(f"<p>{_html_escape(text)}</p>")
 
             if block.text_block.blocks:
                 for child in block.text_block.blocks:
-                    parts.append(self._render_block_html(child))
+                    parts.append(self._render_block_html(child, page_num))
 
         elif block.table_block:
             parts.append(self._render_table_html(block.table_block))
@@ -246,7 +334,7 @@ class HTMLExporter:
             for entry in block.list_block.list_entries:
                 entry_html: list[str] = []
                 for child in entry.blocks:
-                    entry_html.append(self._render_block_html(child))
+                    entry_html.append(self._render_block_html(child, page_num))
                 items.append(f"<li>{''.join(entry_html)}</li>")
             list_type = block.list_block.type_ or ""
             tag = "ol" if list_type == "ordered" else "ul"
@@ -264,7 +352,6 @@ class HTMLExporter:
             return ""
 
         max_cols = max(len(row.cells) for row in all_rows)
-
         rows: list[str] = ["<table>"]
 
         for row in table_block.header_rows:
@@ -332,139 +419,332 @@ def _html_escape(text: str) -> str:
     )
 
 
+# ── CSS ────────────────────────────────────────────────────────
+
 _CSS = """
-* { box-sizing: border-box; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
 body {
   font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;
-  background: #f0f0f0;
-  margin: 0;
-  padding: 20px;
-  padding-top: 60px;
+  background: #eef1f5;
+  overflow: hidden;
+  height: 100vh;
 }
 
-/* Toolbar */
-.toolbar {
+/* ── Index Sidebar ── */
+.index-sidebar {
   position: fixed;
-  top: 0; left: 0; right: 0;
-  z-index: 100;
-  background: #222;
-  padding: 8px 20px;
+  left: 0; top: 0; bottom: 0;
+  width: 260px;
+  background: #fff;
+  border-right: 1px solid #d5d8dc;
   display: flex;
-  align-items: center;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  flex-direction: column;
+  z-index: 50;
+  transition: transform 0.3s ease;
+  box-shadow: 2px 0 6px rgba(0,0,0,0.06);
 }
-.toolbar button {
-  background: #007bff;
-  color: white;
+.index-sidebar.collapsed {
+  transform: translateX(-260px);
+}
+
+.index-header {
+  background: #2c3e50;
+  color: #ecf0f1;
+  padding: 10px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-shrink: 0;
+}
+.index-title { font-size: 14px; font-weight: 600; }
+
+.sidebar-toggle-btn {
+  background: none;
   border: none;
-  padding: 6px 16px;
-  border-radius: 4px;
+  color: #ecf0f1;
   cursor: pointer;
   font-size: 14px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  transition: background 0.15s;
+}
+.sidebar-toggle-btn:hover { background: rgba(255,255,255,0.15); }
+
+.index-controls {
+  padding: 10px 12px;
+  border-bottom: 1px solid #e8e8e8;
+  flex-shrink: 0;
+}
+.toggle-images-btn {
+  width: 100%;
+  background: #3498db;
+  color: #fff;
+  border: none;
+  padding: 8px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
   transition: background 0.2s;
 }
-.toolbar button:hover { background: #0056b3; }
-.toolbar button.active { background: #28a745; }
+.toggle-images-btn:hover { background: #2980b9; }
+.toggle-images-btn.active { background: #27ae60; }
 
-/* Page */
-.page {
-  background: white;
-  margin: 20px auto;
-  max-width: 900px;
-  border: 1px solid #ccc;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+.index-list {
+  list-style: none;
+  overflow-y: auto;
+  flex: 1;
+  padding: 6px 0;
+}
+.index-page-marker {
+  padding: 8px 14px 3px;
+  font-size: 10px;
+  color: #95a5a6;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-top: 2px;
+}
+.index-item a {
+  display: block;
+  padding: 5px 14px;
+  color: #2c3e50;
+  text-decoration: none;
+  font-size: 13px;
+  line-height: 1.4;
   overflow: hidden;
-  transition: max-width 0.3s ease;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-left: 3px solid transparent;
+  transition: all 0.12s;
 }
-.page-header {
-  background: #333;
-  color: white;
-  padding: 8px 16px;
+.index-item a:hover {
+  background: #eaf2f8;
+  color: #2980b9;
+}
+.index-item.active a {
+  background: #d4e6f1;
+  color: #2471a3;
+  border-left-color: #2980b9;
+  font-weight: 600;
+}
+.index-item.level-1 a { padding-left: 14px; font-weight: 500; }
+.index-item.level-2 a { padding-left: 30px; font-size: 12px; }
+.index-item.level-3 a { padding-left: 46px; font-size: 11px; color: #7f8c8d; }
+
+/* ── Expand Tab (sidebar collapsed) ── */
+.expand-tab {
+  display: none;
+  position: fixed;
+  left: 0; top: 50%;
+  transform: translateY(-50%);
+  z-index: 40;
+  background: #2c3e50;
+  color: #ecf0f1;
+  border: none;
+  padding: 14px 6px;
+  border-radius: 0 6px 6px 0;
+  cursor: pointer;
+  font-size: 12px;
+  writing-mode: vertical-rl;
+  letter-spacing: 2px;
+  box-shadow: 2px 0 6px rgba(0,0,0,0.15);
+  transition: background 0.2s;
+}
+.expand-tab:hover { background: #34495e; }
+body.sidebar-collapsed .expand-tab { display: block; }
+
+/* ── Content Area ── */
+.content-area {
+  margin-left: 260px;
+  height: 100vh;
+  overflow-y: auto;
+  padding: 16px;
+  transition: margin-left 0.3s ease;
+}
+body.sidebar-collapsed .content-area { margin-left: 0; }
+
+/* ── Page Section ── */
+.page {
+  background: #fff;
+  margin-bottom: 14px;
+  border: 1px solid #d5d8dc;
+  border-radius: 4px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+  overflow: hidden;
+}
+.page-divider {
+  background: #34495e;
+  color: #ecf0f1;
+  padding: 5px 16px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.page-body { display: flex; }
+
+/* ── Text Column ── */
+.text-col {
+  flex: 1;
+  padding: 20px 28px;
   font-size: 14px;
+  line-height: 1.8;
+  min-width: 0;
+  transition: width 0.3s ease;
 }
 
-/* Two-pane layout */
-.page-content {
-  display: flex;
-}
-.image-pane {
+/* ── Image Column (hidden by default) ── */
+.image-col {
   display: none;
   width: 50%;
   flex-shrink: 0;
-  border-right: 2px solid #007bff;
-  background: #f8f8f8;
+  border-left: 2px solid #3498db;
+  background: #f7f9fb;
 }
-.image-pane img {
-  width: 100%;
-  display: block;
-}
-.text-pane {
-  width: 100%;
-  padding: 16px 24px;
-  font-size: 14px;
-  line-height: 1.7;
-}
+.image-col img { width: 100%; display: block; }
 
-/* Show-images mode */
-body.show-images .page { max-width: 1600px; }
-body.show-images .image-pane { display: block; }
-body.show-images .text-pane { width: 50%; }
-body.show-images .page-content {
-  max-height: 85vh;
-}
-body.show-images .image-pane {
-  overflow-y: auto;
-  max-height: 85vh;
-}
-body.show-images .text-pane {
-  overflow-y: auto;
-  max-height: 85vh;
-}
+/* Show images mode */
+body.show-images .image-col { display: block; }
+body.show-images .text-col { width: 50%; flex: none; }
 
-/* Text styling */
-.text-pane h1 {
-  font-size: 1.4em; color: #1a1a1a;
-  border-bottom: 2px solid #333;
-  padding-bottom: 4px;
+/* ── Text Styling ── */
+.text-col h1 {
+  font-size: 1.3em;
+  color: #1a1a2e;
+  border-bottom: 2px solid #2c3e50;
+  padding-bottom: 5px;
+  margin: 22px 0 10px;
+}
+.text-col h2 {
+  font-size: 1.15em;
+  color: #2c3e50;
+  border-bottom: 1px solid #bdc3c7;
+  padding-bottom: 3px;
   margin: 16px 0 8px;
 }
-.text-pane h2 {
-  font-size: 1.2em; color: #333;
-  border-bottom: 1px solid #ddd;
-  padding-bottom: 4px;
-  margin: 12px 0 8px;
+.text-col h3 {
+  font-size: 1.05em;
+  color: #555;
+  margin: 12px 0 6px;
 }
-.text-pane h3 {
-  font-size: 1.1em; color: #555;
-  margin: 10px 0 6px;
-}
-.text-pane p { margin: 8px 0; }
-.text-pane table {
+.text-col p { margin: 6px 0; }
+.text-col table {
   border-collapse: collapse;
   width: 100%;
   margin: 12px 0;
   font-size: 13px;
 }
-.text-pane th, .text-pane td {
-  border: 1px solid #999;
-  padding: 6px 8px;
+.text-col th, .text-col td {
+  border: 1px solid #bdc3c7;
+  padding: 6px 10px;
   text-align: left;
 }
-.text-pane th { background: #eee; font-weight: bold; }
-.text-pane ul, .text-pane ol {
+.text-col th { background: #ecf0f1; font-weight: 600; }
+.text-col ul, .text-col ol {
   margin: 8px 0;
   padding-left: 24px;
 }
-.text-pane li { margin: 4px 0; }
-.empty-page { color: #999; font-style: italic; }
+.text-col li { margin: 3px 0; }
+.empty-page {
+  color: #bdc3c7;
+  font-style: italic;
+  padding: 24px 0;
+}
+
+/* ── Keyboard Shortcut Hint ── */
+.shortcut-hint {
+  position: fixed;
+  bottom: 10px; right: 14px;
+  background: rgba(44,62,80,0.75);
+  color: #ecf0f1;
+  padding: 5px 12px;
+  border-radius: 4px;
+  font-size: 11px;
+  z-index: 100;
+  pointer-events: none;
+  opacity: 0.5;
+}
 """
 
+# ── JavaScript ─────────────────────────────────────────────────
+
 _JS = """
+// 원본 이미지 토글
 function toggleImages() {
   document.body.classList.toggle('show-images');
-  var btn = document.getElementById('toggle-btn');
+  var btn = document.getElementById('toggle-images-btn');
   var on = document.body.classList.contains('show-images');
-  btn.textContent = on ? '\\ud83d\\udcc4 \\uc6d0\\ubcf8 \\uc228\\uae30\\uae30' : '\\ud83d\\udcc4 \\uc6d0\\ubcf8 \\ubcf4\\uae30';
+  btn.textContent = on
+    ? '\\ud83d\\udcc4 \\uc6d0\\ubcf8 \\uc228\\uae30\\uae30'
+    : '\\ud83d\\udcc4 \\uc6d0\\ubcf8 \\ubcf4\\uae30';
   btn.classList.toggle('active', on);
 }
+
+// 사이드바 토글
+function toggleSidebar() {
+  document.body.classList.toggle('sidebar-collapsed');
+  var sb = document.getElementById('index-sidebar');
+  sb.classList.toggle('collapsed');
+}
+function expandSidebar() {
+  document.body.classList.remove('sidebar-collapsed');
+  document.getElementById('index-sidebar').classList.remove('collapsed');
+}
+
+// 키보드 단축키
+document.addEventListener('keydown', function(e) {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  if (e.key === 'v' && !e.ctrlKey && !e.metaKey) toggleImages();
+  if (e.key === 'b' && !e.ctrlKey && !e.metaKey) toggleSidebar();
+});
+
+// DOM 로드 후 이벤트
+document.addEventListener('DOMContentLoaded', function() {
+  var content = document.getElementById('content-area');
+  var indexItems = document.querySelectorAll('.index-item');
+  var headings = content.querySelectorAll('h1[id], h2[id], h3[id]');
+
+  // 목차 클릭 → 부드러운 스크롤
+  indexItems.forEach(function(item) {
+    var link = item.querySelector('a');
+    if (!link) return;
+    link.addEventListener('click', function(e) {
+      e.preventDefault();
+      var target = document.getElementById(item.dataset.target);
+      if (!target) return;
+      var offset = target.getBoundingClientRect().top
+        - content.getBoundingClientRect().top
+        + content.scrollTop - 12;
+      content.scrollTo({ top: offset, behavior: 'smooth' });
+    });
+  });
+
+  // 스크롤 시 현재 heading 하이라이트
+  var ticking = false;
+  content.addEventListener('scroll', function() {
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(function() {
+      var areaTop = content.getBoundingClientRect().top;
+      var activeId = null;
+      headings.forEach(function(h) {
+        if (h.getBoundingClientRect().top - areaTop <= 80) {
+          activeId = h.id;
+        }
+      });
+      indexItems.forEach(function(item) {
+        var isActive = item.dataset.target === activeId;
+        item.classList.toggle('active', isActive);
+        if (isActive) {
+          var list = document.getElementById('index-list');
+          var ir = item.getBoundingClientRect();
+          var lr = list.getBoundingClientRect();
+          if (ir.top < lr.top || ir.bottom > lr.bottom) {
+            item.scrollIntoView({ block: 'nearest' });
+          }
+        }
+      });
+      ticking = false;
+    });
+  });
+});
 """
