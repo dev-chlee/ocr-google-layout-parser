@@ -18,7 +18,8 @@ credentials/
 !pyproject.toml
 !package.json
 
-# Output
+# Samples & Output
+samples/
 output/
 
 # IDE
