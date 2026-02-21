@@ -2,6 +2,8 @@ from pathlib import Path
 
 from google.cloud import documentai
 
+from src.exporters.block_utils import collect_block_text, parse_heading_level
+
 
 class MarkdownExporter:
     """Markdown 출력 - LLM 처리용. DocumentLayout 블록 기반 구조화된 Markdown 생성."""
@@ -51,12 +53,7 @@ class MarkdownExporter:
             if block_type == "footer":
                 return  # 페이지 번호 등 footer 생략
             elif "heading" in block_type:
-                # heading-1 → #, heading-2 → ##, heading-3 → ###
-                level = 1
-                for ch in block_type:
-                    if ch.isdigit():
-                        level = int(ch)
-                        break
+                level = parse_heading_level(block_type)
                 parts.append(f"{'#' * level} {text}\n")
             elif list_marker:
                 parts.append(f"{indent}{list_marker}{text}")
@@ -135,27 +132,6 @@ class MarkdownExporter:
         """LayoutTableCell에서 텍스트 추출. cell.blocks를 재귀 탐색."""
         texts: list[str] = []
         for block in cell.blocks:
-            self._collect_block_text(block, texts)
+            collect_block_text(block, texts)
         text = " ".join(texts).strip().replace("\n", " ")
         return text.replace("|", "\\|")
-
-    def _collect_block_text(
-        self,
-        block: documentai.Document.DocumentLayout.DocumentLayoutBlock,
-        texts: list[str],
-    ) -> None:
-        """블록에서 텍스트를 재귀적으로 수집."""
-        if block.text_block and block.text_block.text:
-            texts.append(block.text_block.text.strip())
-            if block.text_block.blocks:
-                for child in block.text_block.blocks:
-                    self._collect_block_text(child, texts)
-        elif block.table_block:
-            for row in list(block.table_block.header_rows) + list(block.table_block.body_rows):
-                for cell in row.cells:
-                    for sub_block in cell.blocks:
-                        self._collect_block_text(sub_block, texts)
-        elif block.list_block:
-            for entry in block.list_block.list_entries:
-                for sub_block in entry.blocks:
-                    self._collect_block_text(sub_block, texts)

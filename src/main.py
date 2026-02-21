@@ -1,5 +1,4 @@
 import argparse
-import os
 from pathlib import Path
 
 from src.config import DocumentAIConfig
@@ -53,7 +52,7 @@ def main():
     # CLI에서 chunk-size 오버라이드
     if args.chunk_size is not None:
         config.processing.chunk_size = args.chunk_size
-    os.makedirs(args.output, exist_ok=True)
+    Path(args.output).mkdir(parents=True, exist_ok=True)
 
     if args.batch:
         _run_batch(config, args)
@@ -77,9 +76,10 @@ def _run_single(config: DocumentAIConfig, args) -> None:
 
     doc = process_document(
         config,
-        file_path=args.file,
+        file_path=args.file if not pdf_bytes else None,
         gcs_uri=args.gcs,
         cache_path=args.cache,
+        raw_content=pdf_bytes,
     )
 
     base_name = Path(args.file or args.gcs).stem

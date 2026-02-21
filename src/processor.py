@@ -9,7 +9,7 @@ def create_client(location: str) -> documentai.DocumentProcessorServiceClient:
     return documentai.DocumentProcessorServiceClient(client_options=opts)
 
 
-def _build_process_options(config: DocumentAIConfig) -> documentai.ProcessOptions:
+def build_process_options(config: DocumentAIConfig) -> documentai.ProcessOptions:
     """ProcessingConfig에서 최적 ProcessOptions를 구성."""
     pc = config.processing
 
@@ -53,6 +53,7 @@ def process_document(
     gcs_uri: str | None = None,
     mime_type: str = "application/pdf",
     cache_path: str | None = None,
+    raw_content: bytes | None = None,
 ) -> documentai.Document:
     # 캐시된 응답이 있으면 로드
     if cache_path:
@@ -72,7 +73,12 @@ def process_document(
         config.processor_id,
     )
 
-    if file_path:
+    if raw_content:
+        raw_document = documentai.RawDocument(
+            content=raw_content, mime_type=mime_type
+        )
+        request = documentai.ProcessRequest(name=name, raw_document=raw_document)
+    elif file_path:
         with open(file_path, "rb") as f:
             raw_document = documentai.RawDocument(
                 content=f.read(), mime_type=mime_type
@@ -84,7 +90,7 @@ def process_document(
     else:
         raise ValueError("file_path 또는 gcs_uri 중 하나를 지정해야 합니다.")
 
-    request.process_options = _build_process_options(config)
+    request.process_options = build_process_options(config)
 
     result = client.process_document(request=request, timeout=600)
     doc = result.document

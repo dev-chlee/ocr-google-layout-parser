@@ -1,7 +1,7 @@
 from google.cloud import documentai, storage
 
 from src.config import DocumentAIConfig
-from src.processor import _build_process_options, create_client
+from src.processor import build_process_options, create_client
 
 
 class BatchProcessor:
@@ -44,7 +44,7 @@ class BatchProcessor:
                 gcs_documents=gcs_documents
             ),
             document_output_config=output_config,
-            process_options=_build_process_options(self.config),
+            process_options=build_process_options(self.config),
         )
 
         operation = self.client.batch_process_documents(request)

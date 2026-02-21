@@ -1,8 +1,11 @@
 import base64
+import html as html_mod
 from pathlib import Path
 
 import fitz  # PyMuPDF
 from google.cloud import documentai
+
+from src.exporters.block_utils import collect_block_text, parse_heading_level
 
 
 class HTMLExporter:
@@ -22,7 +25,6 @@ class HTMLExporter:
         self.doc = document
         self.pdf_bytes = original_pdf_bytes
         self.embed_images = embed_images
-        self.image_counter = 0
         self.base_name = ""
         self.output_dir = Path(".")
         self.images_dir = Path(".")
@@ -281,7 +283,6 @@ class HTMLExporter:
                 f'alt="Page {page_num + 1}"/>'
             )
         else:
-            self.image_counter += 1
             fname = f"page_{page_num + 1}.png"
             img_path = self.images_dir / fname
             with open(img_path, "wb") as f:
@@ -315,12 +316,7 @@ class HTMLExporter:
             return ""
         block_type = block.text_block.type_ or ""
         if "heading" in block_type:
-            level = 1
-            for ch in block_type:
-                if ch.isdigit():
-                    level = int(ch)
-                    break
-            return self._make_heading(text, level, page_num)
+            return self._make_heading(text, parse_heading_level(block_type), page_num)
         elif block_type == "footer":
             return ""
         return f"<p>{_html_escape(text)}</p>"
@@ -339,12 +335,7 @@ class HTMLExporter:
 
             if text:
                 if "heading" in block_type:
-                    level = 1
-                    for ch in block_type:
-                        if ch.isdigit():
-                            level = int(ch)
-                            break
-                    parts.append(self._make_heading(text, level, page_num))
+                    parts.append(self._make_heading(text, parse_heading_level(block_type), page_num))
                 elif block_type == "list_item":
                     parts.append(f"<li>{_html_escape(text)}</li>")
                 elif block_type == "footer":
@@ -412,41 +403,12 @@ class HTMLExporter:
         """LayoutTableCell에서 텍스트 추출."""
         texts: list[str] = []
         for block in cell.blocks:
-            self._collect_text(block, texts)
+            collect_block_text(block, texts)
         return " ".join(texts).strip()
-
-    def _collect_text(
-        self,
-        block: documentai.Document.DocumentLayout.DocumentLayoutBlock,
-        texts: list[str],
-    ) -> None:
-        """블록에서 텍스트를 재귀 수집."""
-        if block.text_block and block.text_block.text:
-            texts.append(block.text_block.text.strip())
-            if block.text_block.blocks:
-                for child in block.text_block.blocks:
-                    self._collect_text(child, texts)
-        elif block.table_block:
-            for row in list(block.table_block.header_rows) + list(
-                block.table_block.body_rows
-            ):
-                for cell in row.cells:
-                    for sub in cell.blocks:
-                        self._collect_text(sub, texts)
-        elif block.list_block:
-            for entry in block.list_block.list_entries:
-                for sub in entry.blocks:
-                    self._collect_text(sub, texts)
 
 
 def _html_escape(text: str) -> str:
-    return (
-        text.replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace('"', "&quot;")
-        .replace("\n", "<br>")
-    )
+    return html_mod.escape(text).replace("\n", "<br>")
 
 
 # ── CSS ────────────────────────────────────────────────────────
