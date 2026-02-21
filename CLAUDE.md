@@ -34,10 +34,13 @@ uv run python -m src.main --file samples/sample4-p10.pdf --format html --embed-i
 # API 응답 캐시 사용 (처음: API 호출 후 캐시 저장, 이후: 캐시에서 로드)
 uv run python -m src.main --file samples/sample4-p10.pdf --cache output/cache.json
 
+# 15페이지 초과 PDF → 자동 GCS 배치 처리 (GCS_BUCKET 설정 필요)
+uv run python -m src.main --file samples/long-sample-p20.pdf --output output
+
 # GCS 파일 처리
 uv run python -m src.main --gcs gs://bucket/file.pdf
 
-# 배치 처리
+# 수동 배치 처리
 uv run python -m src.main --batch gs://bucket/input/ --batch-output gs://bucket/output/
 ```
 
@@ -60,9 +63,16 @@ uv run python -m src.main --batch gs://bucket/input/ --batch-output gs://bucket/
 - `LayoutListEntry`: `blocks` (NOT text_block)
 - `LayoutConfig`: `chunking_config`, `return_images`, `return_bounding_boxes`
 
+### 자동 배치 처리 (15페이지 초과)
+- `--file`로 로컬 PDF 처리 시 PyMuPDF로 페이지 수 확인
+- 15페이지 이하 → 온라인 API (기존 방식)
+- 15페이지 초과 → GCS 업로드 → 배치 처리 → 결과 다운로드 → GCS 정리
+- `GCS_BUCKET` 환경변수 필요 (`.env`에 설정)
+
 ## Configuration
 
 - `.env`에 GCP_PROJECT_ID, DOCUMENTAI_PROCESSOR_ID, GOOGLE_APPLICATION_CREDENTIALS 설정
+- `GCS_BUCKET`: 15페이지 초과 PDF 배치 처리용 GCS 버킷 이름
 - 서비스 계정 키: gitignored (*.json)
 - 프로세서: 기본 버전 사용 (processor_path, NOT processor_version_path)
 

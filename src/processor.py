@@ -9,12 +9,17 @@ def create_client(location: str) -> documentai.DocumentProcessorServiceClient:
     return documentai.DocumentProcessorServiceClient(client_options=opts)
 
 
-def build_process_options(config: DocumentAIConfig) -> documentai.ProcessOptions:
+def build_process_options(
+    config: DocumentAIConfig, *, batch_mode: bool = False
+) -> documentai.ProcessOptions:
     """ProcessingConfig에서 최적 ProcessOptions를 구성."""
     pc = config.processing
 
+    # 배치 처리에서는 return_images 미지원
+    return_images = False if batch_mode else pc.return_images
+
     layout_config = documentai.ProcessOptions.LayoutConfig(
-        return_images=pc.return_images,
+        return_images=return_images,
         return_bounding_boxes=pc.return_bounding_boxes,
         chunking_config=documentai.ProcessOptions.LayoutConfig.ChunkingConfig(
             chunk_size=pc.chunk_size,

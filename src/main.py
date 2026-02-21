@@ -17,11 +17,15 @@ if sys.platform == "win32" and platform._uname_cache is None:
 import argparse
 from pathlib import Path
 
+import fitz
+
 from src.config import DocumentAIConfig
 from src.processor import process_document
 from src.batch_processor import BatchProcessor
 from src.exporters.html_exporter import HTMLExporter
 from src.exporters.markdown_exporter import MarkdownExporter
+
+MAX_ONLINE_PAGES = 15
 
 
 def main():
@@ -80,23 +84,48 @@ def main():
 
 def _run_single(config: DocumentAIConfig, args) -> None:
     pdf_bytes = None
+    page_count = 0
+
     if args.file:
         file_path = Path(args.file).resolve()
         if not file_path.exists():
             raise FileNotFoundError(f"파일을 찾을 수 없습니다: {args.file}")
         with open(file_path, "rb") as f:
             pdf_bytes = f.read()
-        print(f"처리 중: {file_path.name}")
+
+        # PyMuPDF로 페이지 수 확인
+        with fitz.open(stream=pdf_bytes, filetype="pdf") as pdf_doc:
+            page_count = len(pdf_doc)
+        print(f"처리 중: {file_path.name} ({page_count}페이지)")
     else:
         print(f"처리 중: {args.gcs}")
 
-    doc = process_document(
-        config,
-        file_path=args.file if not pdf_bytes else None,
-        gcs_uri=args.gcs,
-        cache_path=args.cache,
-        raw_content=pdf_bytes,
-    )
+    # 15페이지 초과 로컬 파일 → 자동 배치 처리
+    use_batch = args.file and page_count > MAX_ONLINE_PAGES
+
+    if use_batch:
+        if not config.gcs_bucket:
+            raise ValueError(
+                f"PDF가 {page_count}페이지로 온라인 처리 한도({MAX_ONLINE_PAGES}페이지)를 "
+                f"초과합니다. 배치 처리를 위해 .env에 GCS_BUCKET을 설정하세요."
+            )
+        print(
+            f"페이지 수 {page_count} > {MAX_ONLINE_PAGES} → "
+            f"GCS 배치 처리로 전환 (버킷: {config.gcs_bucket})"
+        )
+        processor = BatchProcessor(config)
+        doc = processor.process_local_file(
+            pdf_path=args.file,
+            output_dir=args.output,
+        )
+    else:
+        doc = process_document(
+            config,
+            file_path=args.file if not pdf_bytes else None,
+            gcs_uri=args.gcs,
+            cache_path=args.cache,
+            raw_content=pdf_bytes,
+        )
 
     base_name = Path(args.file or args.gcs).stem
 

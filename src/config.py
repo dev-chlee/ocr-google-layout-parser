@@ -38,6 +38,7 @@ class DocumentAIConfig:
     project_id: str
     location: str = "us"
     processor_id: str = ""
+    gcs_bucket: str | None = None
     processing: ProcessingConfig = field(default_factory=ProcessingConfig)
 
     @classmethod
@@ -74,5 +75,6 @@ class DocumentAIConfig:
             project_id=os.environ["GCP_PROJECT_ID"],
             location=os.environ.get("GCP_LOCATION", "us"),
             processor_id=os.environ["DOCUMENTAI_PROCESSOR_ID"],
+            gcs_bucket=os.environ.get("GCS_BUCKET"),
             processing=processing,
         )
