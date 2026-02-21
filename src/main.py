@@ -82,7 +82,10 @@ def main():
         _run_batch(config, args, logger)
     elif args.file or args.dir or args.gcs:
         # 파일 수집: --file + --dir → pdf_files 리스트
-        pdf_files = _collect_pdf_files(args)
+        try:
+            pdf_files = _collect_pdf_files(args)
+        except (FileNotFoundError, NotADirectoryError, ValueError) as e:
+            parser.error(str(e))
 
         if not pdf_files and args.gcs:
             _run_single_gcs(config, args, logger)
@@ -113,6 +116,17 @@ def _collect_pdf_files(args) -> list[str]:
             raise NotADirectoryError(f"디렉토리를 찾을 수 없습니다: {args.dir}")
         for p in sorted(dir_path.glob("*.pdf")):
             pdf_files.append(str(p))
+
+    # 중복 파일명(stem) 체크 — 출력 폴더 충돌 방지
+    stems = [Path(f).stem for f in pdf_files]
+    seen: dict[str, str] = {}
+    for path, stem in zip(pdf_files, stems):
+        if stem in seen:
+            raise ValueError(
+                f"파일명 충돌: '{stem}' — {seen[stem]} vs {path}. "
+                f"출력 폴더가 겹치므로 파일명이 고유해야 합니다."
+            )
+        seen[stem] = path
 
     return pdf_files
 

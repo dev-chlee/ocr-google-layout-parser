@@ -39,9 +39,11 @@ def setup_logging(output_dir: str | None = None) -> logging.Logger:
 def log_timer(logger: logging.Logger, label: str):
     """소요 시간 측정 컨텍스트 매니저."""
     start = time.time()
-    yield
-    elapsed = time.time() - start
-    logger.info(f"{label} ({elapsed:.1f}초)")
+    try:
+        yield
+    finally:
+        elapsed = time.time() - start
+        logger.info(f"{label} ({elapsed:.1f}초)")
 
 
 def fmt_size(n: int) -> str:

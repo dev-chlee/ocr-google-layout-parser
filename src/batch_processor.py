@@ -17,6 +17,7 @@ class BatchProcessor:
     def __init__(self, config: DocumentAIConfig):
         self.config = config
         self.client = create_client(config.location)
+        self.storage_client = storage.Client()
 
     def process_local_files(
         self,
@@ -48,21 +49,36 @@ class BatchProcessor:
 
         logger.info(f"GCS 업로드 완료: {len(gcs_uris)}개 파일 → gs://{bucket_name}/{gcs_prefix}/input/")
 
-        # 2. 배치 요청 1회 (모든 GCS URI 묶어서)
-        self._run_batch_multi(
+        # 2. 배치 요청 1회 → metadata에서 input→output 매핑 획득
+        statuses = self._run_batch_multi(
             [uri for _, uri in gcs_uris],
             gcs_output_prefix,
             timeout,
         )
 
-        # 3. 결과 다운로드: {파일명: Document} dict로 반환
-        results = self._download_results(bucket_name, f"{gcs_prefix}/output/")
+        # 3. metadata의 input→output 매핑으로 파일별 다운로드
+        results: dict[str, documentai.Document] = {}
+        for status in statuses:
+            # input_gcs_source → 원본 파일명 추출
+            source_name = Path(status.input_gcs_source).stem
+            # output_gcs_destination → 해당 파일의 결과 JSON 위치
+            output_dest = status.output_gcs_destination
+            # gs:// prefix 제거하여 bucket 내 경로 추출
+            output_path = output_dest.replace(f"gs://{bucket_name}/", "")
+            if not output_path.endswith("/"):
+                output_path += "/"
+
+            doc = self._download_single_result(bucket_name, output_path)
+            results[source_name] = doc
+            logger.debug(f"다운로드 완료: {source_name} ← {output_dest}")
+
+        logger.info(f"결과 다운로드 완료: {len(results)}개 파일")
         return results
 
     def _run_batch_multi(
         self, gcs_uris: list[str], output_gcs_prefix: str, timeout: int
-    ) -> None:
-        """여러 GCS 파일에 대해 배치 처리 1회 실행."""
+    ) -> list:
+        """여러 GCS 파일에 대해 배치 처리 1회 실행. individual_process_statuses 반환."""
         name = self.client.processor_path(
             self.config.project_id,
             self.config.location,
@@ -101,27 +117,27 @@ class BatchProcessor:
 
         # 개별 문서 처리 상태 확인
         metadata = documentai.BatchProcessMetadata(operation.metadata)
+        errors = []
         for status in metadata.individual_process_statuses:
             if status.status.code != 0:
                 logger.error(
                     f"배치 처리 실패: {status.status.message} "
                     f"(입력: {status.input_gcs_source})"
                 )
-                raise RuntimeError(
-                    f"배치 처리 실패: {status.status.message} "
-                    f"(입력: {status.input_gcs_source})"
-                )
+                errors.append(status.input_gcs_source)
 
-    def _download_results(
+        if errors:
+            raise RuntimeError(
+                f"{len(errors)}개 파일 배치 처리 실패: {', '.join(errors)}"
+            )
+
+        return list(metadata.individual_process_statuses)
+
+    def _download_single_result(
         self, bucket_name: str, output_prefix: str
-    ) -> dict[str, documentai.Document]:
-        """GCS 배치 출력에서 파일별 Document를 다운로드.
-
-        배치 출력 구조: {output_prefix}/{operation_id}/{input_index}/0/*.json
-        metadata.individual_process_statuses에서 input→output 매핑 사용.
-        """
-        storage_client = storage.Client()
-        bucket = storage_client.bucket(bucket_name)
+    ) -> documentai.Document:
+        """GCS에서 단일 파일의 배치 결과를 다운로드하고 Document로 파싱."""
+        bucket = self.storage_client.bucket(bucket_name)
         blobs = list(bucket.list_blobs(prefix=output_prefix))
 
         json_blobs = [b for b in blobs if b.name.endswith(".json")]
@@ -130,51 +146,24 @@ class BatchProcessor:
                 f"배치 처리 결과를 찾을 수 없습니다: gs://{bucket_name}/{output_prefix}"
             )
 
-        # blob 경로에서 서브폴더별로 그룹화
-        # 구조: {output_prefix}/{subdir1}/{subdir2}/file.json
-        groups: dict[str, list] = {}
+        # 여러 샤드가 있을 수 있음 — shardIndex 순서로 정렬
+        all_docs = []
         for blob in sorted(json_blobs, key=lambda b: b.name):
-            # output_prefix 이후의 경로에서 첫 번째 디렉토리를 그룹 키로 사용
-            relative = blob.name[len(output_prefix):]
-            group_key = relative.split("/")[0] if "/" in relative else ""
-            groups.setdefault(group_key, []).append(blob)
+            content = blob.download_as_text(encoding="utf-8")
+            doc_dict = json.loads(content)
+            shard_idx = doc_dict.get("shardInfo", {}).get("shardIndex", 0)
+            all_docs.append((shard_idx, content))
 
-        results: dict[str, documentai.Document] = {}
-        for group_key, group_blobs in groups.items():
-            # 각 그룹의 JSON 파일들을 로드
-            all_docs = []
-            for blob in group_blobs:
-                content = blob.download_as_text(encoding="utf-8")
-                doc_dict = json.loads(content)
-                shard_idx = doc_dict.get("shardInfo", {}).get("shardIndex", 0)
-                all_docs.append((shard_idx, content))
-
-            all_docs.sort(key=lambda x: x[0])
-            doc = documentai.Document.from_json(all_docs[0][1])
-
-            # Document의 uri 필드에서 원본 파일명 추출
-            source_name = self._extract_source_name(doc, group_key)
-            results[source_name] = doc
-            if len(all_docs) > 1:
-                logger.debug(f"{source_name}: 샤드 {len(all_docs)}개 (첫 번째 사용)")
-
-        logger.info(f"결과 다운로드 완료: {len(results)}개 파일")
-        return results
-
-    @staticmethod
-    def _extract_source_name(doc: documentai.Document, fallback: str) -> str:
-        """Document에서 원본 파일명을 추출."""
-        # Document.uri에 원본 GCS 경로가 들어있음
-        if doc.uri:
-            return Path(doc.uri).stem
-        return fallback
+        all_docs.sort(key=lambda x: x[0])
+        if len(all_docs) > 1:
+            logger.warning(f"샤드 {len(all_docs)}개 발견 — 첫 번째만 사용, 나머지 콘텐츠 누락 가능")
+        return documentai.Document.from_json(all_docs[0][1])
 
     def _upload_to_gcs(
         self, local_path: Path, bucket_name: str, gcs_path: str
     ) -> str:
         """로컬 파일을 GCS에 업로드."""
-        storage_client = storage.Client()
-        bucket = storage_client.bucket(bucket_name)
+        bucket = self.storage_client.bucket(bucket_name)
         blob = bucket.blob(gcs_path)
         blob.upload_from_filename(str(local_path))
         return f"gs://{bucket_name}/{gcs_path}"
@@ -182,8 +171,7 @@ class BatchProcessor:
     def _cleanup_gcs(self, bucket_name: str, gcs_path: str) -> None:
         """GCS에서 단일 파일 삭제."""
         try:
-            storage_client = storage.Client()
-            bucket = storage_client.bucket(bucket_name)
+            bucket = self.storage_client.bucket(bucket_name)
             blob = bucket.blob(gcs_path)
             blob.delete()
             logger.info(f"GCS 정리: gs://{bucket_name}/{gcs_path}")
@@ -193,8 +181,7 @@ class BatchProcessor:
     def _cleanup_gcs_prefix(self, bucket_name: str, prefix: str) -> None:
         """GCS에서 prefix 하위 모든 파일 삭제."""
         try:
-            storage_client = storage.Client()
-            bucket = storage_client.bucket(bucket_name)
+            bucket = self.storage_client.bucket(bucket_name)
             blobs = list(bucket.list_blobs(prefix=prefix))
             for blob in blobs:
                 blob.delete()
@@ -251,12 +238,11 @@ class BatchProcessor:
     def _list_gcs_documents(
         self, gcs_prefix: str
     ) -> list[documentai.GcsDocument]:
-        storage_client = storage.Client()
         parts = gcs_prefix.replace("gs://", "").split("/", 1)
         bucket_name = parts[0]
         prefix = parts[1] if len(parts) > 1 else ""
 
-        bucket = storage_client.bucket(bucket_name)
+        bucket = self.storage_client.bucket(bucket_name)
         blobs = bucket.list_blobs(prefix=prefix)
 
         docs = []
