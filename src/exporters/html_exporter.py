@@ -67,7 +67,7 @@ class HTMLExporter:
             pdf_doc = fitz.open(stream=self.pdf_bytes, filetype="pdf")
             page_count = len(pdf_doc)
 
-        page_blocks, page_refs = self._group_blocks_by_page()
+        page_blocks = self._group_blocks_by_page()
 
         for page_num in range(page_count):
             page_num_1based = page_num + 1
@@ -86,18 +86,13 @@ class HTMLExporter:
 
             # 우측: 텍스트 패널
             parts.append('    <div class="text-pane">')
-            blocks_for_page = page_blocks.get(page_num_1based, [])
-            if blocks_for_page:
-                for block in blocks_for_page:
-                    parts.append(self._render_block_html(block))
-            elif page_num_1based in page_refs:
-                ref_page = page_refs[page_num_1based]
-                parts.append(
-                    f'<p class="page-ref">'
-                    f"\u2190 Page {ref_page}\uc758 "
-                    f"\ud14d\uc2a4\ud2b8 \uacc4\uc18d"
-                    f"</p>"
-                )
+            items = page_blocks.get(page_num_1based, [])
+            if items:
+                for block, mode in items:
+                    if mode == "text_only":
+                        parts.append(self._render_block_text_only(block))
+                    else:
+                        parts.append(self._render_block_html(block))
             else:
                 parts.append(
                     '<p class="empty-page">'
@@ -115,31 +110,54 @@ class HTMLExporter:
         parts.append("</html>")
         return "\n".join(parts)
 
-    def _group_blocks_by_page(
-        self,
-    ) -> tuple[dict[int, list], dict[int, int]]:
-        """document_layout.blocks를 page_span 기준으로 그룹화.
+    def _group_blocks_by_page(self) -> dict[int, list]:
+        """document_layout.blocks를 page_span 기준으로 페이지별 분배.
 
-        각 블록은 page_start 페이지에만 할당 (중복 방지).
-        텍스트가 없는 페이지는 참조 페이지 매핑을 반환.
+        멀티 페이지 블록은 자식 블록의 page_span으로 각 페이지에 분배.
+        부모의 텍스트(heading)는 시작 페이지에만 할당.
 
         Returns:
-            (page_blocks, page_refs) - page_refs[page] = 참조할 페이지 번호
+            page_blocks[page_num] = [(block, render_mode), ...]
+            render_mode: 'full' (자식 포함 렌더링) 또는 'text_only' (자기 텍스트만)
         """
         page_blocks: dict[int, list] = {}
-        page_coverage: dict[int, int] = {}
         if not self.doc.document_layout:
-            return page_blocks, page_coverage
+            return page_blocks
 
         for block in self.doc.document_layout.blocks:
-            page_start = block.page_span.page_start if block.page_span else 1
-            page_end = block.page_span.page_end if block.page_span else page_start
-            page_blocks.setdefault(page_start, []).append(block)
-            for p in range(page_start + 1, page_end + 1):
-                if p not in page_coverage:
-                    page_coverage[p] = page_start
+            self._distribute_block(block, page_blocks)
 
-        return page_blocks, page_coverage
+        return page_blocks
+
+    def _distribute_block(
+        self,
+        block: documentai.Document.DocumentLayout.DocumentLayoutBlock,
+        page_blocks: dict[int, list],
+    ) -> None:
+        """블록을 페이지별로 분배. 멀티 페이지 블록은 자식 기준으로 분배."""
+        page_start = block.page_span.page_start if block.page_span else 1
+        page_end = block.page_span.page_end if block.page_span else page_start
+
+        if page_start == page_end:
+            # 단일 페이지 블록: 통째로 할당
+            page_blocks.setdefault(page_start, []).append((block, "full"))
+            return
+
+        # 멀티 페이지 블록: 자기 텍스트는 시작 페이지, 자식은 각 페이지별 분배
+        if block.text_block:
+            if block.text_block.text and block.text_block.text.strip():
+                page_blocks.setdefault(page_start, []).append(
+                    (block, "text_only")
+                )
+            # 자식 블록을 각 페이지에 재귀 분배
+            if block.text_block.blocks:
+                for child in block.text_block.blocks:
+                    self._distribute_block(child, page_blocks)
+        elif block.list_block:
+            # 리스트 블록은 통째로 시작 페이지에 할당
+            page_blocks.setdefault(page_start, []).append((block, "full"))
+        elif block.table_block:
+            page_blocks.setdefault(page_start, []).append((block, "full"))
 
     def _render_page_image(self, pdf_doc: fitz.Document, page_num: int) -> str:
         """PyMuPDF로 페이지를 이미지로 렌더링."""
@@ -165,6 +183,29 @@ class HTMLExporter:
                 f'<img class="page-image" '
                 f'src="{rel_path}" alt="Page {page_num + 1}"/>'
             )
+
+    def _render_block_text_only(
+        self,
+        block: documentai.Document.DocumentLayout.DocumentLayoutBlock,
+    ) -> str:
+        """블록의 자기 텍스트만 렌더링 (자식 블록 제외). 멀티 페이지 부모용."""
+        if not block.text_block:
+            return ""
+        text = block.text_block.text.strip() if block.text_block.text else ""
+        if not text:
+            return ""
+        escaped = _html_escape(text)
+        block_type = block.text_block.type_ or ""
+        if "heading" in block_type:
+            level = 1
+            for ch in block_type:
+                if ch.isdigit():
+                    level = int(ch)
+                    break
+            return f"<h{level}>{escaped}</h{level}>"
+        elif block_type == "footer":
+            return ""
+        return f"<p>{escaped}</p>"
 
     def _render_block_html(
         self,
@@ -416,12 +457,6 @@ body.show-images .text-pane {
 }
 .text-pane li { margin: 4px 0; }
 .empty-page { color: #999; font-style: italic; }
-.page-ref {
-  color: #007bff;
-  font-style: italic;
-  padding: 20px 0;
-  font-size: 15px;
-}
 """
 
 _JS = """
