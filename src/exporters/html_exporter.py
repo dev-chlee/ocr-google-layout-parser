@@ -772,12 +772,15 @@ body.page-view .page-body {
   display: flex;
 }
 body.page-view .text-col {
-  width: 50%;
-  flex: none;
+  flex: 1;
   overflow-y: auto;
   padding: 20px 28px;
 }
-body.page-view .image-col {
+body.page-view.show-images .text-col {
+  width: 50%;
+  flex: none;
+}
+body.page-view.show-images .image-col {
   display: block;
   width: 50%;
   flex-shrink: 0;
@@ -798,7 +801,17 @@ var _savedImagesState = false;
 
 // 원본 이미지 토글 (문자 단위 스크롤 위치 보존)
 function toggleImages() {
-  if (_pageViewActive) return;
+  // 페이지 뷰에서는 단순 토글 (스크롤 보존 불필요)
+  if (_pageViewActive) {
+    document.body.classList.toggle('show-images');
+    var btn = document.getElementById('toggle-images-btn');
+    var on = document.body.classList.contains('show-images');
+    btn.textContent = on
+      ? '\\ud83d\\udcc4 \\uc6d0\\ubcf8 \\uc228\\uae30\\uae30 (V)'
+      : '\\ud83d\\udcc4 \\uc6d0\\ubcf8 \\ubcf4\\uae30 (V)';
+    btn.classList.toggle('active', on);
+    return;
+  }
   var content = document.getElementById('content-area');
   var contentRect = content.getBoundingClientRect();
 
@@ -1154,14 +1167,7 @@ function togglePageView() {
     _currentPage = findCurrentVisiblePage();
     content._savedScrollTop = content.scrollTop;
 
-    // 이미지 상태 저장 후 강제 표시
-    _savedImagesState = document.body.classList.contains('show-images');
-    document.body.classList.add('show-images');
-    var imgBtn = document.getElementById('toggle-images-btn');
-    imgBtn.textContent = '\\ud83d\\udcc4 \\uc6d0\\ubcf8 \\uc228\\uae30\\uae30 (V)';
-    imgBtn.classList.add('active');
-
-    // 페이지 뷰 모드 활성화
+    // 페이지 뷰 모드 활성화 (이미지 상태 유지)
     document.body.classList.add('page-view');
     _pageViewActive = true;
     showPage(_currentPage);
@@ -1174,14 +1180,6 @@ function togglePageView() {
     document.body.classList.remove('page-view');
     var pages = content.querySelectorAll('.page');
     pages.forEach(function(p) { p.classList.remove('active-page'); });
-
-    // 이미지 상태 복원
-    if (!_savedImagesState) {
-      document.body.classList.remove('show-images');
-      var imgBtn2 = document.getElementById('toggle-images-btn');
-      imgBtn2.textContent = '\\ud83d\\udcc4 \\uc6d0\\ubcf8 \\ubcf4\\uae30 (V)';
-      imgBtn2.classList.remove('active');
-    }
 
     // 마지막 본 페이지 위치로 스크롤 복원
     var targetPage = document.getElementById('page-' + _currentPage);
