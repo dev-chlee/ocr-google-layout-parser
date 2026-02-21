@@ -1,3 +1,19 @@
+import os
+import platform
+import sys
+
+# Workaround: Python 3.14 + Windows에서 platform.uname()이 WMI 쿼리 시 무한 대기하는 버그 회피
+# aiohttp 등 라이브러리가 import 시점에 platform.system()/machine()을 호출하므로
+# 모든 import보다 앞에 위치해야 함
+if sys.platform == "win32" and platform._uname_cache is None:
+    platform._uname_cache = platform.uname_result(
+        "Windows",
+        os.environ.get("COMPUTERNAME", ""),
+        "10",
+        platform._syscmd_ver()[2] or "10.0",
+        os.environ.get("PROCESSOR_ARCHITECTURE", "AMD64"),
+    )
+
 import argparse
 from pathlib import Path
 
