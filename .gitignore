@@ -13,6 +13,7 @@ wheels/
 .env
 
 # GCP service account keys
+credentials/
 *.json
 !pyproject.toml
 !package.json
