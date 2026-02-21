@@ -169,19 +169,19 @@ class HTMLExporter:
             '    <button id="toggle-images-btn" class="toggle-images-btn" '
             'onclick="toggleImages()" '
             'title="\uc6d0\ubcf8 \uc774\ubbf8\uc9c0 \ubcf4\uae30 (V)">'
-            "\U0001f4c4 \uc6d0\ubcf8 \ubcf4\uae30</button>"
+            "\U0001f4c4 \uc6d0\ubcf8 \ubcf4\uae30 (V)</button>"
         )
         parts.append(
             '    <button id="page-view-btn" class="page-view-btn" '
             'onclick="togglePageView()" '
             'title="\ud398\uc774\uc9c0 \ubdf0 (P)">'
-            "\U0001f4d6 \ud398\uc774\uc9c0 \ubdf0</button>"
+            "\U0001f4d6 \ud398\uc774\uc9c0 \ubdf0 (P)</button>"
         )
         parts.append(
             '    <button id="copy-btn" class="copy-btn" '
             'onclick="copyForExcel()" '
             'title="Excel \ubd99\uc5ec\ub123\uae30\uc6a9 \ubcf5\uc0ac (C)">'
-            "\U0001f4cb Excel \ubcf5\uc0ac</button>"
+            "\U0001f4cb Excel \ubcf5\uc0ac (C)</button>"
         )
         parts.append("  </div>")
 
@@ -890,8 +890,8 @@ function toggleImages() {
   var btn = document.getElementById('toggle-images-btn');
   var on = document.body.classList.contains('show-images');
   btn.textContent = on
-    ? '\\ud83d\\udcc4 \\uc6d0\\ubcf8 \\uc228\\uae30\\uae30'
-    : '\\ud83d\\udcc4 \\uc6d0\\ubcf8 \\ubcf4\\uae30';
+    ? '\\ud83d\\udcc4 \\uc6d0\\ubcf8 \\uc228\\uae30\\uae30 (V)'
+    : '\\ud83d\\udcc4 \\uc6d0\\ubcf8 \\ubcf4\\uae30 (V)';
   btn.classList.toggle('active', on);
 
   // 스크롤 위치 복원
@@ -948,7 +948,7 @@ function copyForExcel() {
       btn.textContent = '\\u2705 \\ubcf5\\uc0ac\\ub428!';
       btn.classList.add('copied');
       setTimeout(function() {
-        btn.textContent = '\\ud83d\\udccb Excel \\ubcf5\\uc0ac';
+        btn.textContent = '\\ud83d\\udccb Excel \\ubcf5\\uc0ac (C)';
         btn.classList.remove('copied');
       }, 2000);
     }).catch(function() {
@@ -975,13 +975,13 @@ function fallbackCopy(html, btn) {
     btn.textContent = '\\u2705 \\ubcf5\\uc0ac\\ub428!';
     btn.classList.add('copied');
     setTimeout(function() {
-      btn.textContent = '\\ud83d\\udccb Excel \\ubcf5\\uc0ac';
+      btn.textContent = '\\ud83d\\udccb Excel \\ubcf5\\uc0ac (C)';
       btn.classList.remove('copied');
     }, 2000);
   } catch(e) {
     btn.textContent = '\\u274c \\uc2e4\\ud328';
     setTimeout(function() {
-      btn.textContent = '\\ud83d\\udccb Excel \\ubcf5\\uc0ac';
+      btn.textContent = '\\ud83d\\udccb Excel \\ubcf5\\uc0ac (C)';
     }, 2000);
   }
   sel.removeAllRanges();
@@ -1157,7 +1157,7 @@ function togglePageView() {
     _savedImagesState = document.body.classList.contains('show-images');
     document.body.classList.add('show-images');
     var imgBtn = document.getElementById('toggle-images-btn');
-    imgBtn.textContent = '\\ud83d\\udcc4 \\uc6d0\\ubcf8 \\uc228\\uae30\\uae30';
+    imgBtn.textContent = '\\ud83d\\udcc4 \\uc6d0\\ubcf8 \\uc228\\uae30\\uae30 (V)';
     imgBtn.classList.add('active');
 
     // 페이지 뷰 모드 활성화
@@ -1165,7 +1165,7 @@ function togglePageView() {
     _pageViewActive = true;
     showPage(_currentPage);
 
-    btn.textContent = '\\ud83d\\udcc4 \\uc5f0\\uc18d \\ubcf4\\uae30';
+    btn.textContent = '\\ud83d\\udcc4 \\uc5f0\\uc18d \\ubcf4\\uae30 (P)';
     btn.classList.add('active');
   } else {
     // 복귀
@@ -1178,7 +1178,7 @@ function togglePageView() {
     if (!_savedImagesState) {
       document.body.classList.remove('show-images');
       var imgBtn2 = document.getElementById('toggle-images-btn');
-      imgBtn2.textContent = '\\ud83d\\udcc4 \\uc6d0\\ubcf8 \\ubcf4\\uae30';
+      imgBtn2.textContent = '\\ud83d\\udcc4 \\uc6d0\\ubcf8 \\ubcf4\\uae30 (V)';
       imgBtn2.classList.remove('active');
     }
 
@@ -1192,7 +1192,7 @@ function togglePageView() {
       content.scrollTop = content._savedScrollTop;
     }
 
-    btn.textContent = '\\ud83d\\udcd6 \\ud398\\uc774\\uc9c0 \\ubdf0';
+    btn.textContent = '\\ud83d\\udcd6 \\ud398\\uc774\\uc9c0 \\ubdf0 (P)';
     btn.classList.remove('active');
   }
 }
