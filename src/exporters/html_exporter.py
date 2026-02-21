@@ -6,11 +6,10 @@ from google.cloud import documentai
 
 
 class HTMLExporter:
-    """HTML 출력 - PDF 페이지 이미지 + 구조화된 텍스트.
+    """HTML 출력 - 좌/우 패널 레이아웃.
 
-    Layout Parser는 page-level bounding box를 제공하지 않으므로,
-    PyMuPDF로 원본 PDF 페이지를 이미지로 렌더링하여 원본 레이아웃을 보전합니다.
-    document_layout.blocks의 텍스트는 검색/접근성을 위해 함께 표시합니다.
+    - 기본: 텍스트만 표시 (전체 너비)
+    - 원본 보기 토글: 좌측 PDF 이미지 + 우측 텍스트 (병렬 비교)
     """
 
     def __init__(
@@ -49,35 +48,17 @@ class HTMLExporter:
             '<meta name="viewport" content="width=device-width, initial-scale=1.0">',
             "<title>OCR Result</title>",
             "<style>",
-            "  body { font-family: 'Noto Sans KR', sans-serif; background: #f0f0f0; margin: 0; padding: 20px; }",
-            "  .page { background: white; margin: 20px auto; max-width: 900px;",
-            "    border: 1px solid #ccc; box-shadow: 0 2px 8px rgba(0,0,0,0.1); overflow: hidden; }",
-            "  .page-header { background: #333; color: white; padding: 8px 16px; font-size: 14px; }",
-            "  .page-image { width: 100%; display: block; }",
-            "  .page-text { padding: 16px 24px; border-top: 2px solid #007bff;",
-            "    background: #fafafa; font-size: 14px; line-height: 1.6; }",
-            "  .page-text h2 { color: #333; border-bottom: 1px solid #ddd; padding-bottom: 4px; }",
-            "  .page-text p { margin: 8px 0; }",
-            "  .page-text table { border-collapse: collapse; width: 100%; margin: 12px 0; }",
-            "  .page-text th, .page-text td { border: 1px solid #999; padding: 6px 8px; text-align: left; }",
-            "  .page-text th { background: #eee; font-weight: bold; }",
-            "  .page-text ul { margin: 8px 0; padding-left: 24px; }",
-            "  .text-toggle { cursor: pointer; color: #007bff; font-size: 12px;",
-            "    padding: 4px 16px; background: #f0f7ff; border-top: 1px solid #ddd; }",
-            "  .text-toggle:hover { background: #e0eeff; }",
-            "  .text-content { display: none; }",
-            "  .text-content.show { display: block; }",
+            _CSS,
             "</style>",
             "<script>",
-            "function toggleText(pageNum) {",
-            "  var el = document.getElementById('text-' + pageNum);",
-            "  el.classList.toggle('show');",
-            "  var btn = document.getElementById('btn-' + pageNum);",
-            "  btn.textContent = el.classList.contains('show') ? '▲ 텍스트 숨기기' : '▼ 텍스트 보기';",
-            "}",
+            _JS,
             "</script>",
             "</head>",
             "<body>",
+            '<div class="toolbar">',
+            '  <button id="toggle-btn" onclick="toggleImages()">'
+            "\U0001f4c4 \uc6d0\ubcf8 \ubcf4\uae30</button>",
+            "</div>",
         ]
 
         pdf_doc = None
@@ -86,33 +67,46 @@ class HTMLExporter:
             pdf_doc = fitz.open(stream=self.pdf_bytes, filetype="pdf")
             page_count = len(pdf_doc)
 
-        # page_span별로 블록 그룹화
-        page_blocks = self._group_blocks_by_page()
+        page_blocks, page_refs = self._group_blocks_by_page()
 
         for page_num in range(page_count):
-            parts.append(f'<div class="page">')
-            parts.append(f'  <div class="page-header">Page {page_num + 1}</div>')
+            page_num_1based = page_num + 1
+            parts.append('<div class="page">')
+            parts.append(
+                f'  <div class="page-header">Page {page_num_1based}</div>'
+            )
+            parts.append('  <div class="page-content">')
 
-            # 페이지 이미지 렌더링
+            # 좌측: 이미지 패널 (기본 숨김)
+            parts.append('    <div class="image-pane">')
             if pdf_doc:
                 img_tag = self._render_page_image(pdf_doc, page_num)
-                parts.append(f"  {img_tag}")
+                parts.append(f"      {img_tag}")
+            parts.append("    </div>")
 
-            # 구조화된 텍스트 (토글 가능)
-            page_num_1based = page_num + 1
+            # 우측: 텍스트 패널
+            parts.append('    <div class="text-pane">')
             blocks_for_page = page_blocks.get(page_num_1based, [])
             if blocks_for_page:
-                parts.append(f'  <div class="text-toggle" id="btn-{page_num_1based}" onclick="toggleText({page_num_1based})">')
-                parts.append(f"    ▼ 텍스트 보기")
-                parts.append(f"  </div>")
-                parts.append(f'  <div class="text-content" id="text-{page_num_1based}">')
-                parts.append(f'    <div class="page-text">')
                 for block in blocks_for_page:
                     parts.append(self._render_block_html(block))
-                parts.append(f"    </div>")
-                parts.append(f"  </div>")
+            elif page_num_1based in page_refs:
+                ref_page = page_refs[page_num_1based]
+                parts.append(
+                    f'<p class="page-ref">'
+                    f"\u2190 Page {ref_page}\uc758 "
+                    f"\ud14d\uc2a4\ud2b8 \uacc4\uc18d"
+                    f"</p>"
+                )
+            else:
+                parts.append(
+                    '<p class="empty-page">'
+                    "(\ud14d\uc2a4\ud2b8 \uc5c6\uc74c)</p>"
+                )
+            parts.append("    </div>")
 
-            parts.append("</div>")
+            parts.append("  </div>")  # .page-content
+            parts.append("</div>")  # .page
 
         if pdf_doc:
             pdf_doc.close()
@@ -121,19 +115,31 @@ class HTMLExporter:
         parts.append("</html>")
         return "\n".join(parts)
 
-    def _group_blocks_by_page(self) -> dict[int, list]:
-        """document_layout.blocks를 page_span 기준으로 그룹화."""
+    def _group_blocks_by_page(
+        self,
+    ) -> tuple[dict[int, list], dict[int, int]]:
+        """document_layout.blocks를 page_span 기준으로 그룹화.
+
+        각 블록은 page_start 페이지에만 할당 (중복 방지).
+        텍스트가 없는 페이지는 참조 페이지 매핑을 반환.
+
+        Returns:
+            (page_blocks, page_refs) - page_refs[page] = 참조할 페이지 번호
+        """
         page_blocks: dict[int, list] = {}
+        page_coverage: dict[int, int] = {}
         if not self.doc.document_layout:
-            return page_blocks
+            return page_blocks, page_coverage
 
         for block in self.doc.document_layout.blocks:
             page_start = block.page_span.page_start if block.page_span else 1
             page_end = block.page_span.page_end if block.page_span else page_start
-            for p in range(page_start, page_end + 1):
-                page_blocks.setdefault(p, []).append(block)
+            page_blocks.setdefault(page_start, []).append(block)
+            for p in range(page_start + 1, page_end + 1):
+                if p not in page_coverage:
+                    page_coverage[p] = page_start
 
-        return page_blocks
+        return page_blocks, page_coverage
 
     def _render_page_image(self, pdf_doc: fitz.Document, page_num: int) -> str:
         """PyMuPDF로 페이지를 이미지로 렌더링."""
@@ -143,7 +149,11 @@ class HTMLExporter:
 
         if self.embed_images:
             b64 = base64.b64encode(img_bytes).decode("utf-8")
-            return f'<img class="page-image" src="data:image/png;base64,{b64}" alt="Page {page_num + 1}"/>'
+            return (
+                f'<img class="page-image" '
+                f'src="data:image/png;base64,{b64}" '
+                f'alt="Page {page_num + 1}"/>'
+            )
         else:
             self.image_counter += 1
             fname = f"page_{page_num + 1}.png"
@@ -151,7 +161,10 @@ class HTMLExporter:
             with open(img_path, "wb") as f:
                 f.write(img_bytes)
             rel_path = f"{self.base_name}_images/{fname}"
-            return f'<img class="page-image" src="{rel_path}" alt="Page {page_num + 1}"/>'
+            return (
+                f'<img class="page-image" '
+                f'src="{rel_path}" alt="Page {page_num + 1}"/>'
+            )
 
     def _render_block_html(
         self,
@@ -167,7 +180,6 @@ class HTMLExporter:
             if text:
                 escaped = _html_escape(text)
                 if "heading" in block_type:
-                    # heading-1 → h1, heading-2 → h2, heading-3 → h3
                     level = 1
                     for ch in block_type:
                         if ch.isdigit():
@@ -177,11 +189,10 @@ class HTMLExporter:
                 elif block_type == "list_item":
                     parts.append(f"<li>{escaped}</li>")
                 elif block_type == "footer":
-                    pass  # 페이지 번호 등 footer는 생략
+                    pass
                 else:
                     parts.append(f"<p>{escaped}</p>")
 
-            # 자식 블록 재귀 렌더링
             if block.text_block.blocks:
                 for child in block.text_block.blocks:
                     parts.append(self._render_block_html(child))
@@ -192,8 +203,10 @@ class HTMLExporter:
         elif block.list_block:
             items: list[str] = []
             for entry in block.list_block.list_entries:
+                entry_html: list[str] = []
                 for child in entry.blocks:
-                    items.append(self._render_block_html(child))
+                    entry_html.append(self._render_block_html(child))
+                items.append(f"<li>{''.join(entry_html)}</li>")
             list_type = block.list_block.type_ or ""
             tag = "ol" if list_type == "ordered" else "ul"
             parts.append(f"<{tag}>{''.join(items)}</{tag}>")
@@ -204,7 +217,13 @@ class HTMLExporter:
         self,
         table_block: documentai.Document.DocumentLayout.DocumentLayoutBlock.LayoutTableBlock,
     ) -> str:
-        """테이블 블록을 HTML 테이블로 변환."""
+        """테이블 블록을 HTML 테이블로 변환. 열 수를 정규화."""
+        all_rows = list(table_block.header_rows) + list(table_block.body_rows)
+        if not all_rows:
+            return ""
+
+        max_cols = max(len(row.cells) for row in all_rows)
+
         rows: list[str] = ["<table>"]
 
         for row in table_block.header_rows:
@@ -212,6 +231,8 @@ class HTMLExporter:
             for cell in row.cells:
                 text = _html_escape(self._extract_cell_text(cell))
                 rows.append(f"<th>{text}</th>")
+            for _ in range(max_cols - len(row.cells)):
+                rows.append("<th></th>")
             rows.append("</tr>")
 
         for row in table_block.body_rows:
@@ -219,6 +240,8 @@ class HTMLExporter:
             for cell in row.cells:
                 text = _html_escape(self._extract_cell_text(cell))
                 rows.append(f"<td>{text}</td>")
+            for _ in range(max_cols - len(row.cells)):
+                rows.append("<td></td>")
             rows.append("</tr>")
 
         rows.append("</table>")
@@ -246,7 +269,9 @@ class HTMLExporter:
                 for child in block.text_block.blocks:
                     self._collect_text(child, texts)
         elif block.table_block:
-            for row in list(block.table_block.header_rows) + list(block.table_block.body_rows):
+            for row in list(block.table_block.header_rows) + list(
+                block.table_block.body_rows
+            ):
                 for cell in row.cells:
                     for sub in cell.blocks:
                         self._collect_text(sub, texts)
@@ -264,3 +289,147 @@ def _html_escape(text: str) -> str:
         .replace('"', "&quot;")
         .replace("\n", "<br>")
     )
+
+
+_CSS = """
+* { box-sizing: border-box; }
+body {
+  font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;
+  background: #f0f0f0;
+  margin: 0;
+  padding: 20px;
+  padding-top: 60px;
+}
+
+/* Toolbar */
+.toolbar {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 100;
+  background: #222;
+  padding: 8px 20px;
+  display: flex;
+  align-items: center;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+.toolbar button {
+  background: #007bff;
+  color: white;
+  border: none;
+  padding: 6px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.2s;
+}
+.toolbar button:hover { background: #0056b3; }
+.toolbar button.active { background: #28a745; }
+
+/* Page */
+.page {
+  background: white;
+  margin: 20px auto;
+  max-width: 900px;
+  border: 1px solid #ccc;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  overflow: hidden;
+  transition: max-width 0.3s ease;
+}
+.page-header {
+  background: #333;
+  color: white;
+  padding: 8px 16px;
+  font-size: 14px;
+}
+
+/* Two-pane layout */
+.page-content {
+  display: flex;
+}
+.image-pane {
+  display: none;
+  width: 50%;
+  flex-shrink: 0;
+  border-right: 2px solid #007bff;
+  background: #f8f8f8;
+}
+.image-pane img {
+  width: 100%;
+  display: block;
+}
+.text-pane {
+  width: 100%;
+  padding: 16px 24px;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+/* Show-images mode */
+body.show-images .page { max-width: 1600px; }
+body.show-images .image-pane { display: block; }
+body.show-images .text-pane { width: 50%; }
+body.show-images .page-content {
+  max-height: 85vh;
+}
+body.show-images .image-pane {
+  overflow-y: auto;
+  max-height: 85vh;
+}
+body.show-images .text-pane {
+  overflow-y: auto;
+  max-height: 85vh;
+}
+
+/* Text styling */
+.text-pane h1 {
+  font-size: 1.4em; color: #1a1a1a;
+  border-bottom: 2px solid #333;
+  padding-bottom: 4px;
+  margin: 16px 0 8px;
+}
+.text-pane h2 {
+  font-size: 1.2em; color: #333;
+  border-bottom: 1px solid #ddd;
+  padding-bottom: 4px;
+  margin: 12px 0 8px;
+}
+.text-pane h3 {
+  font-size: 1.1em; color: #555;
+  margin: 10px 0 6px;
+}
+.text-pane p { margin: 8px 0; }
+.text-pane table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 12px 0;
+  font-size: 13px;
+}
+.text-pane th, .text-pane td {
+  border: 1px solid #999;
+  padding: 6px 8px;
+  text-align: left;
+}
+.text-pane th { background: #eee; font-weight: bold; }
+.text-pane ul, .text-pane ol {
+  margin: 8px 0;
+  padding-left: 24px;
+}
+.text-pane li { margin: 4px 0; }
+.empty-page { color: #999; font-style: italic; }
+.page-ref {
+  color: #007bff;
+  font-style: italic;
+  padding: 20px 0;
+  font-size: 15px;
+}
+"""
+
+_JS = """
+function toggleImages() {
+  document.body.classList.toggle('show-images');
+  var btn = document.getElementById('toggle-btn');
+  var on = document.body.classList.contains('show-images');
+  btn.textContent = on ? '\\ud83d\\udcc4 \\uc6d0\\ubcf8 \\uc228\\uae30\\uae30' : '\\ud83d\\udcc4 \\uc6d0\\ubcf8 \\ubcf4\\uae30';
+  btn.classList.toggle('active', on);
+}
+"""
