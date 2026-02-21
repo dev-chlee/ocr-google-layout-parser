@@ -89,6 +89,7 @@ class HTMLExporter:
             "</main>",
             '<div class="shortcut-hint">'
             "V: \uc6d0\ubcf8 \ud1a0\uae00 | B: \ubaa9\ucc28 \ud1a0\uae00"
+            " | C: Excel \ubcf5\uc0ac"
             "</div>",
             "<script>",
             _JS,
@@ -159,6 +160,12 @@ class HTMLExporter:
             'onclick="toggleImages()" '
             'title="\uc6d0\ubcf8 \uc774\ubbf8\uc9c0 \ubcf4\uae30 (V)">'
             "\U0001f4c4 \uc6d0\ubcf8 \ubcf4\uae30</button>"
+        )
+        parts.append(
+            '    <button id="copy-btn" class="copy-btn" '
+            'onclick="copyForExcel()" '
+            'title="Excel \ubd99\uc5ec\ub123\uae30\uc6a9 \ubcf5\uc0ac (C)">'
+            "\U0001f4cb Excel \ubcf5\uc0ac</button>"
         )
         parts.append("  </div>")
 
@@ -490,6 +497,21 @@ body {
 .toggle-images-btn:hover { background: #2980b9; }
 .toggle-images-btn.active { background: #27ae60; }
 
+.copy-btn {
+  width: 100%;
+  background: #8e44ad;
+  color: #fff;
+  border: none;
+  padding: 8px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  margin-top: 6px;
+  transition: background 0.2s;
+}
+.copy-btn:hover { background: #7d3c98; }
+.copy-btn.copied { background: #27ae60; }
+
 .index-list {
   list-style: none;
   overflow-y: auto;
@@ -792,6 +814,73 @@ function toggleImages() {
   });
 }
 
+// Excel 복사
+function copyForExcel() {
+  var content = document.getElementById('content-area');
+  var pages = content.querySelectorAll('.page');
+  var htmlParts = [];
+
+  pages.forEach(function(page) {
+    var divider = page.querySelector('.page-divider');
+    if (divider) {
+      htmlParts.push('<p><b>' + divider.textContent + '</b></p>');
+    }
+    var textCol = page.querySelector('.text-col');
+    if (textCol) {
+      htmlParts.push(textCol.innerHTML);
+    }
+  });
+
+  var fullHtml = '<html><body>' + htmlParts.join('') + '</body></html>';
+  var btn = document.getElementById('copy-btn');
+
+  if (navigator.clipboard && navigator.clipboard.write) {
+    var blob = new Blob([fullHtml], { type: 'text/html' });
+    var item = new ClipboardItem({ 'text/html': blob });
+    navigator.clipboard.write([item]).then(function() {
+      btn.textContent = '\\u2705 \\ubcf5\\uc0ac\\ub428!';
+      btn.classList.add('copied');
+      setTimeout(function() {
+        btn.textContent = '\\ud83d\\udccb Excel \\ubcf5\\uc0ac';
+        btn.classList.remove('copied');
+      }, 2000);
+    }).catch(function() {
+      fallbackCopy(fullHtml, btn);
+    });
+  } else {
+    fallbackCopy(fullHtml, btn);
+  }
+}
+
+function fallbackCopy(html, btn) {
+  var tmp = document.createElement('div');
+  tmp.innerHTML = html;
+  tmp.style.position = 'fixed';
+  tmp.style.left = '-9999px';
+  document.body.appendChild(tmp);
+  var range = document.createRange();
+  range.selectNodeContents(tmp);
+  var sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+  try {
+    document.execCommand('copy');
+    btn.textContent = '\\u2705 \\ubcf5\\uc0ac\\ub428!';
+    btn.classList.add('copied');
+    setTimeout(function() {
+      btn.textContent = '\\ud83d\\udccb Excel \\ubcf5\\uc0ac';
+      btn.classList.remove('copied');
+    }, 2000);
+  } catch(e) {
+    btn.textContent = '\\u274c \\uc2e4\\ud328';
+    setTimeout(function() {
+      btn.textContent = '\\ud83d\\udccb Excel \\ubcf5\\uc0ac';
+    }, 2000);
+  }
+  sel.removeAllRanges();
+  document.body.removeChild(tmp);
+}
+
 // 사이드바 토글
 function toggleSidebar() {
   document.body.classList.toggle('sidebar-collapsed');
@@ -808,6 +897,7 @@ document.addEventListener('keydown', function(e) {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
   if (e.key === 'v' && !e.ctrlKey && !e.metaKey) toggleImages();
   if (e.key === 'b' && !e.ctrlKey && !e.metaKey) toggleSidebar();
+  if (e.key === 'c' && !e.ctrlKey && !e.metaKey) copyForExcel();
 });
 
 // DOM 로드 후 이벤트
