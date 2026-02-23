@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "GCP Document AI Layout Parser를 활용한 PDF OCR 파서"
 readme = "README.md"
 license = "MIT"
-authors = [{ name = "lch0611", email = "lch0611@gmail.com" }]
+authors = [{ name = "dev-chlee", email = "dev-chlee@users.noreply.github.com" }]
 requires-python = ">=3.11"
 dependencies = [
     "google-cloud-documentai>=2.20.0",
@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.urls]
-Repository = "https://github.com/lch0611/gcs-api-ocr"
+Repository = "https://github.com/dev-chlee/gcs-api-ocr"
 
 [project.scripts]
 gcs-ocr = "src.main:main"

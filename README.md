@@ -21,7 +21,7 @@ GCP Document AI Layout Parser를 활용한 PDF OCR 파서. PDF를 구조화된 *
 ## Installation
 
 ```bash
-git clone https://github.com/lch0611/gcs-api-ocr.git
+git clone https://github.com/dev-chlee/gcs-api-ocr.git
 cd gcs-api-ocr
 uv sync
 ```
