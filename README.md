@@ -1,22 +1,24 @@
+[한국어](README.ko.md) | **English**
+
 # GCS API OCR
 
-GCP Document AI Layout Parser를 활용한 PDF OCR 파서. PDF를 구조화된 **Markdown**(LLM 입력용)과 **HTML**(페이지 이미지 + 텍스트 토글) 형식으로 변환합니다.
+A PDF OCR parser powered by GCP Document AI Layout Parser. Converts PDFs into structured **Markdown** (optimized for LLM input) and **HTML** (page images + text toggle) formats.
 
 ## Features
 
-- **Layout Parser 기반 OCR** - 텍스트, 테이블, 리스트, 헤딩 등 문서 구조 보존
-- **HTML 출력** - PyMuPDF 페이지 렌더링 + 원본/텍스트 토글, 목차, 단일 페이지 뷰
-- **Markdown 출력** - LLM 입력에 최적화된 구조화 텍스트
-- **자동 배치 처리** - 15페이지 초과 PDF는 GCS 배치로 자동 전환 (최대 500페이지)
-- **다중 파일 처리** - 여러 PDF를 한 번의 배치 요청으로 처리
-- **API 응답 캐시** - 반복 작업 시 API 호출 절약
+- **Layout Parser-based OCR** - Preserves document structure including text, tables, lists, and headings
+- **HTML output** - PyMuPDF page rendering + original/text toggle, table of contents, single-page view
+- **Markdown output** - Structured text optimized for LLM input
+- **Automatic batch processing** - PDFs over 15 pages automatically switch to GCS batch mode (up to 500 pages)
+- **Multi-file processing** - Process multiple PDFs in a single batch request
+- **API response caching** - Save API calls on repeated processing
 
 ## Prerequisites
 
 - Python 3.11+
-- [uv](https://docs.astral.sh/uv/) (패키지 매니저)
-- GCP 프로젝트 + Document AI Layout Parser 프로세서
-- GCP 서비스 계정 키 (JSON)
+- [uv](https://docs.astral.sh/uv/) (package manager)
+- GCP project + Document AI Layout Parser processor
+- GCP service account key (JSON)
 
 ## Installation
 
@@ -28,52 +30,52 @@ uv sync
 
 ## Configuration
 
-`.env.example`을 `.env`로 복사하고 값을 설정하세요:
+Copy `.env.example` to `.env` and fill in your values:
 
 ```bash
 cp .env.example .env
 ```
 
-필수 설정:
-- `GCP_PROJECT_ID` - GCP 프로젝트 ID
-- `DOCUMENTAI_PROCESSOR_ID` - Document AI Layout Parser 프로세서 ID
-- `GOOGLE_APPLICATION_CREDENTIALS` - 서비스 계정 키 파일 경로
+Required settings:
+- `GCP_PROJECT_ID` - Your GCP project ID
+- `DOCUMENTAI_PROCESSOR_ID` - Document AI Layout Parser processor ID
+- `GOOGLE_APPLICATION_CREDENTIALS` - Path to service account key file
 
-15페이지 초과 PDF 또는 다중 파일 배치 처리 시:
-- `GCS_BUCKET` - GCS 버킷 이름
+For PDFs over 15 pages or multi-file batch processing:
+- `GCS_BUCKET` - GCS bucket name
 
 ## Usage
 
 ```bash
-# 단일 파일 (HTML + Markdown)
+# Single file (HTML + Markdown)
 uv run python -m src.main --file input.pdf --output output
 
-# HTML만 (이미지 base64 임베드)
+# HTML only (base64-embedded images)
 uv run python -m src.main --file input.pdf --format html --embed-images
 
-# API 응답 캐시 사용
+# Use API response cache
 uv run python -m src.main --file input.pdf --cache output/cache.json
 
-# 여러 파일 한번에 처리 (배치)
+# Multiple files at once (batch)
 uv run python -m src.main --file a.pdf b.pdf c.pdf --output output
 
-# 폴더 내 모든 PDF 처리
+# Process all PDFs in a folder
 uv run python -m src.main --dir ./pdfs/ --output output
 
-# GCS 파일 처리
+# Process GCS file
 uv run python -m src.main --gcs gs://bucket/file.pdf
 ```
 
 ## Output
 
 ```
-# 단일 파일
+# Single file
 output/
-├── sample.html          # 페이지 이미지 + 텍스트 토글
-├── sample.md            # 구조화 Markdown
-└── sample_images/       # 페이지 이미지 (--embed-images 미사용 시)
+├── sample.html          # Page images + text toggle
+├── sample.md            # Structured Markdown
+└── sample_images/       # Page images (when --embed-images is not used)
 
-# 다중 파일
+# Multiple files
 output/
 ├── file1/
 │   ├── file1.html
@@ -87,24 +89,24 @@ output/
 
 ```
 src/
-├── main.py                # CLI 진입점
-├── config.py              # 환경변수 기반 설정
-├── processor.py           # Document AI API 호출
-├── batch_processor.py     # GCS 배치 처리 (500페이지)
-├── logger.py              # 로깅 + 타이머
+├── main.py                # CLI entry point
+├── config.py              # Environment-based configuration
+├── processor.py           # Document AI API calls
+├── batch_processor.py     # GCS batch processing (500 pages)
+├── logger.py              # Logging + timer
 └── exporters/
-    ├── block_utils.py     # 블록 텍스트 추출 유틸
-    ├── html_exporter.py   # HTML 출력 (PyMuPDF 렌더링)
-    └── markdown_exporter.py # Markdown 출력
+    ├── block_utils.py     # Block text extraction utilities
+    ├── html_exporter.py   # HTML export (PyMuPDF rendering)
+    └── markdown_exporter.py # Markdown export
 ```
 
 ## Processing Logic
 
-| 조건 | 처리 방식 |
-|------|-----------|
-| 단일 파일, 15페이지 이하 | 온라인 API |
-| 단일 파일, 15페이지 초과 | GCS 배치 (자동) |
-| 2개 이상 파일 | GCS 배치 (1회 요청) |
+| Condition | Processing Method |
+|-----------|-------------------|
+| Single file, 15 pages or less | Online API |
+| Single file, over 15 pages | GCS batch (automatic) |
+| 2 or more files | GCS batch (single request) |
 
 ## License
 
