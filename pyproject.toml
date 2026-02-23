@@ -1,7 +1,7 @@
 [project]
 name = "gcs-api-ocr"
 version = "0.1.0"
-description = "GCP Document AI Layout Parser를 활용한 PDF OCR 파서"
+description = "PDF OCR parser powered by GCP Document AI Layout Parser"
 readme = "README.md"
 license = "MIT"
 authors = [{ name = "dev-chlee", email = "dev-chlee@users.noreply.github.com" }]

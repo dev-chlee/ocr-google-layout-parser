@@ -7,33 +7,33 @@ from dotenv import load_dotenv
 
 @dataclass
 class ProcessingConfig:
-    """Layout Parser 처리 옵션 설정. 기본값은 최고 품질."""
+    """Layout Parser processing options. Defaults to highest quality."""
 
-    # 레이아웃 설정
+    # Layout settings
     return_images: bool = True
     return_bounding_boxes: bool = True
 
-    # 청킹 설정
+    # Chunking settings
     chunk_size: int = 1024
     include_ancestor_headings: bool = True
 
-    # OCR 설정 (OCR 프로세서 전용 - Layout Parser에서는 사용 불가)
-    # Layout Parser는 자체 OCR을 내장하고 있어 별도 OcrConfig가 불필요합니다.
-    # OCR 프로세서 사용 시 enable_ocr_config=true로 설정하세요.
+    # OCR settings (OCR processor only - not available for Layout Parser)
+    # Layout Parser has built-in OCR, so a separate OcrConfig is not needed.
+    # Set enable_ocr_config=true when using an OCR processor.
     enable_ocr_config: bool = False
     enable_native_pdf_parsing: bool = True
     enable_symbol: bool = True
     enable_image_quality_scores: bool = True
     compute_style_info: bool = True
 
-    # 프리미엄 기능 (OCR 2.0+ 프로세서에서만 사용 가능)
+    # Premium features (only available on OCR 2.0+ processors)
     enable_selection_mark_detection: bool = False
     enable_math_ocr: bool = False
 
 
 @dataclass
 class DocumentAIConfig:
-    """GCP Document AI 연결 설정."""
+    """GCP Document AI connection settings."""
 
     project_id: str
     location: str = "us"
@@ -51,7 +51,7 @@ class DocumentAIConfig:
         else:
             load_dotenv()
 
-        # 서비스 계정 키 경로 설정
+        # Resolve service account key path
         credentials_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
         if credentials_path:
             resolved = Path(credentials_path).resolve()
