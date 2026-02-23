@@ -5,20 +5,20 @@ from pathlib import Path
 
 
 def setup_logging(output_dir: str | None = None) -> logging.Logger:
-    """콘솔(메시지만) + 파일(타임스탬프+레벨) 핸들러 설정."""
+    """Set up console (message only) + file (timestamp+level) handlers."""
     logger = logging.getLogger("docai")
     if logger.handlers:
         return logger
 
     logger.setLevel(logging.DEBUG)
 
-    # 콘솔: 메시지만
+    # Console: message only
     console = logging.StreamHandler()
     console.setLevel(logging.INFO)
     console.setFormatter(logging.Formatter("%(message)s"))
     logger.addHandler(console)
 
-    # 파일: 타임스탬프 + 레벨
+    # File: timestamp + level
     if output_dir:
         log_dir = Path(output_dir)
         log_dir.mkdir(parents=True, exist_ok=True)
@@ -37,17 +37,17 @@ def setup_logging(output_dir: str | None = None) -> logging.Logger:
 
 @contextmanager
 def log_timer(logger: logging.Logger, label: str):
-    """소요 시간 측정 컨텍스트 매니저."""
+    """Context manager for measuring elapsed time."""
     start = time.time()
     try:
         yield
     finally:
         elapsed = time.time() - start
-        logger.info(f"{label} ({elapsed:.1f}초)")
+        logger.info(f"{label} ({elapsed:.1f}s)")
 
 
 def fmt_size(n: int) -> str:
-    """파일 크기를 읽기 쉬운 형식으로 변환."""
+    """Convert file size to a human-readable format."""
     if n < 1024:
         return f"{n}B"
     if n < 1024 * 1024:

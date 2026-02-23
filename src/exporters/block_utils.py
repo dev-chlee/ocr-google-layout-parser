@@ -1,10 +1,10 @@
-"""document_layout 블록 공유 유틸리티."""
+"""Shared utilities for document_layout blocks."""
 
 from google.cloud import documentai
 
 
 def parse_heading_level(block_type: str) -> int:
-    """블록 타입 문자열에서 heading level 추출. (e.g., 'heading-2' → 2)"""
+    """Extract heading level from block type string. (e.g., 'heading-2' -> 2)"""
     for ch in block_type:
         if ch.isdigit():
             return int(ch)
@@ -15,7 +15,7 @@ def collect_block_text(
     block: documentai.Document.DocumentLayout.DocumentLayoutBlock,
     texts: list[str],
 ) -> None:
-    """블록에서 텍스트를 재귀적으로 수집."""
+    """Recursively collect text from a block."""
     if block.text_block and block.text_block.text:
         texts.append(block.text_block.text.strip())
         if block.text_block.blocks:

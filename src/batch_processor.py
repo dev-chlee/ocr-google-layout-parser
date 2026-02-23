@@ -12,7 +12,7 @@ logger = logging.getLogger("docai")
 
 
 class BatchProcessor:
-    """대용량 문서 배치 처리 (500페이지까지 지원)."""
+    """Batch processing for large documents (supports up to 500 pages)."""
 
     def __init__(self, config: DocumentAIConfig):
         self.config = config
@@ -24,61 +24,61 @@ class BatchProcessor:
         pdf_paths: list[str],
         timeout: int | None = None,
     ) -> dict[str, documentai.Document]:
-        """여러 로컬 PDF → GCS 업로드 → 배치 1회 → 파일별 Document 반환."""
+        """Multiple local PDFs -> GCS upload -> single batch run -> per-file Document return."""
         if timeout is None:
             timeout = self.config.batch_timeout
         bucket_name = self.config.gcs_bucket
         if not bucket_name:
             raise ValueError(
-                "GCS_BUCKET이 설정되지 않았습니다. "
-                ".env에 GCS_BUCKET=<버킷이름>을 추가하세요."
+                "GCS_BUCKET is not configured. "
+                "Add GCS_BUCKET=<bucket-name> to your .env file."
             )
 
         timestamp = int(time.time())
         gcs_prefix = f"batch_{timestamp}"
         gcs_output_prefix = f"gs://{bucket_name}/{gcs_prefix}/output/"
 
-        # 1. 전체 파일 GCS 업로드
-        gcs_uris: list[tuple[str, str]] = []  # (파일명, gcs_uri)
+        # 1. Upload all files to GCS
+        gcs_uris: list[tuple[str, str]] = []  # (filename, gcs_uri)
         for pdf_path in pdf_paths:
             pdf_file = Path(pdf_path).resolve()
             gcs_input_path = f"{gcs_prefix}/input/{pdf_file.name}"
             gcs_uri = self._upload_to_gcs(pdf_file, bucket_name, gcs_input_path)
             gcs_uris.append((pdf_file.name, gcs_uri))
-            logger.debug(f"GCS 업로드: {gcs_uri}")
+            logger.debug(f"GCS upload: {gcs_uri}")
 
-        logger.info(f"GCS 업로드 완료: {len(gcs_uris)}개 파일 → gs://{bucket_name}/{gcs_prefix}/input/")
+        logger.info(f"GCS upload complete: {len(gcs_uris)} files -> gs://{bucket_name}/{gcs_prefix}/input/")
 
-        # 2. 배치 요청 1회 → metadata에서 input→output 매핑 획득
+        # 2. Single batch request -> obtain input->output mapping from metadata
         statuses = self._run_batch_multi(
             [uri for _, uri in gcs_uris],
             gcs_output_prefix,
             timeout,
         )
 
-        # 3. metadata의 input→output 매핑으로 파일별 다운로드
+        # 3. Download per-file results using input->output mapping from metadata
         results: dict[str, documentai.Document] = {}
         for status in statuses:
-            # input_gcs_source → 원본 파일명 추출
+            # Extract original filename from input_gcs_source
             source_name = Path(status.input_gcs_source).stem
-            # output_gcs_destination → 해당 파일의 결과 JSON 위치
+            # output_gcs_destination -> location of this file's result JSON
             output_dest = status.output_gcs_destination
-            # gs:// prefix 제거하여 bucket 내 경로 추출
+            # Strip gs:// prefix to extract path within the bucket
             output_path = output_dest.replace(f"gs://{bucket_name}/", "")
             if not output_path.endswith("/"):
                 output_path += "/"
 
             doc = self._download_single_result(bucket_name, output_path)
             results[source_name] = doc
-            logger.debug(f"다운로드 완료: {source_name} ← {output_dest}")
+            logger.debug(f"Download complete: {source_name} <- {output_dest}")
 
-        logger.info(f"결과 다운로드 완료: {len(results)}개 파일")
+        logger.info(f"Results download complete: {len(results)} files")
         return results
 
     def _run_batch_multi(
         self, gcs_uris: list[str], output_gcs_prefix: str, timeout: int
     ) -> list:
-        """여러 GCS 파일에 대해 배치 처리 1회 실행. individual_process_statuses 반환."""
+        """Run a single batch process for multiple GCS files. Returns individual_process_statuses."""
         name = self.client.processor_path(
             self.config.project_id,
             self.config.location,
@@ -110,25 +110,25 @@ class BatchProcessor:
         )
 
         operation = self.client.batch_process_documents(request)
-        logger.info(f"배치 작업 ID: {operation.operation.name}")
-        logger.info(f"완료 대기 중... (타임아웃: {timeout}초)")
+        logger.info(f"Batch operation ID: {operation.operation.name}")
+        logger.info(f"Waiting for completion... (timeout: {timeout}s)")
 
         operation.result(timeout=timeout)
 
-        # 개별 문서 처리 상태 확인
+        # Check individual document processing status
         metadata = documentai.BatchProcessMetadata(operation.metadata)
         errors = []
         for status in metadata.individual_process_statuses:
             if status.status.code != 0:
                 logger.error(
-                    f"배치 처리 실패: {status.status.message} "
-                    f"(입력: {status.input_gcs_source})"
+                    f"Batch processing failed: {status.status.message} "
+                    f"(input: {status.input_gcs_source})"
                 )
                 errors.append(status.input_gcs_source)
 
         if errors:
             raise RuntimeError(
-                f"{len(errors)}개 파일 배치 처리 실패: {', '.join(errors)}"
+                f"Batch processing failed for {len(errors)} file(s): {', '.join(errors)}"
             )
 
         return list(metadata.individual_process_statuses)
@@ -136,17 +136,17 @@ class BatchProcessor:
     def _download_single_result(
         self, bucket_name: str, output_prefix: str
     ) -> documentai.Document:
-        """GCS에서 단일 파일의 배치 결과를 다운로드하고 Document로 파싱."""
+        """Download a single file's batch result from GCS and parse it into a Document."""
         bucket = self.storage_client.bucket(bucket_name)
         blobs = list(bucket.list_blobs(prefix=output_prefix))
 
         json_blobs = [b for b in blobs if b.name.endswith(".json")]
         if not json_blobs:
             raise RuntimeError(
-                f"배치 처리 결과를 찾을 수 없습니다: gs://{bucket_name}/{output_prefix}"
+                f"Batch processing result not found: gs://{bucket_name}/{output_prefix}"
             )
 
-        # 여러 샤드가 있을 수 있음 — shardIndex 순서로 정렬
+        # There may be multiple shards - sort by shardIndex
         all_docs = []
         for blob in sorted(json_blobs, key=lambda b: b.name):
             content = blob.download_as_text(encoding="utf-8")
@@ -156,39 +156,39 @@ class BatchProcessor:
 
         all_docs.sort(key=lambda x: x[0])
         if len(all_docs) > 1:
-            logger.warning(f"샤드 {len(all_docs)}개 발견 — 첫 번째만 사용, 나머지 콘텐츠 누락 가능")
+            logger.warning(f"Found {len(all_docs)} shards - using first only, remaining content may be missing")
         return documentai.Document.from_json(all_docs[0][1])
 
     def _upload_to_gcs(
         self, local_path: Path, bucket_name: str, gcs_path: str
     ) -> str:
-        """로컬 파일을 GCS에 업로드."""
+        """Upload a local file to GCS."""
         bucket = self.storage_client.bucket(bucket_name)
         blob = bucket.blob(gcs_path)
         blob.upload_from_filename(str(local_path))
         return f"gs://{bucket_name}/{gcs_path}"
 
     def _cleanup_gcs(self, bucket_name: str, gcs_path: str) -> None:
-        """GCS에서 단일 파일 삭제."""
+        """Delete a single file from GCS."""
         try:
             bucket = self.storage_client.bucket(bucket_name)
             blob = bucket.blob(gcs_path)
             blob.delete()
-            logger.info(f"GCS 정리: gs://{bucket_name}/{gcs_path}")
+            logger.info(f"GCS cleanup: gs://{bucket_name}/{gcs_path}")
         except Exception as e:
-            logger.warning(f"GCS 정리 실패 (무시): {e}")
+            logger.warning(f"GCS cleanup failed (ignored): {e}")
 
     def _cleanup_gcs_prefix(self, bucket_name: str, prefix: str) -> None:
-        """GCS에서 prefix 하위 모든 파일 삭제."""
+        """Delete all files under a GCS prefix."""
         try:
             bucket = self.storage_client.bucket(bucket_name)
             blobs = list(bucket.list_blobs(prefix=prefix))
             for blob in blobs:
                 blob.delete()
             if blobs:
-                logger.info(f"GCS 정리: gs://{bucket_name}/{prefix} ({len(blobs)}개 파일)")
+                logger.info(f"GCS cleanup: gs://{bucket_name}/{prefix} ({len(blobs)} files)")
         except Exception as e:
-            logger.warning(f"GCS 정리 실패 (무시): {e}")
+            logger.warning(f"GCS cleanup failed (ignored): {e}")
 
     def process_batch(
         self,
@@ -206,9 +206,9 @@ class BatchProcessor:
 
         input_docs = self._list_gcs_documents(input_gcs_prefix)
         if not input_docs:
-            raise ValueError(f"GCS 경로에 PDF 파일이 없습니다: {input_gcs_prefix}")
+            raise ValueError(f"No PDF files found at GCS path: {input_gcs_prefix}")
 
-        logger.info(f"배치 처리 시작: {len(input_docs)}개 문서")
+        logger.info(f"Starting batch processing: {len(input_docs)} documents")
 
         gcs_documents = documentai.GcsDocuments(documents=input_docs)
 
@@ -228,11 +228,11 @@ class BatchProcessor:
         )
 
         operation = self.client.batch_process_documents(request)
-        logger.info(f"작업 ID: {operation.operation.name}")
-        logger.info(f"완료 대기 중... (타임아웃: {timeout}초)")
+        logger.info(f"Operation ID: {operation.operation.name}")
+        logger.info(f"Waiting for completion... (timeout: {timeout}s)")
 
         result = operation.result(timeout=timeout)
-        logger.info("배치 처리 완료")
+        logger.info("Batch processing complete")
         return result
 
     def _list_gcs_documents(

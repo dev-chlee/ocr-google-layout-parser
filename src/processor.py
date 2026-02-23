@@ -16,10 +16,10 @@ def create_client(location: str) -> documentai.DocumentProcessorServiceClient:
 def build_process_options(
     config: DocumentAIConfig, *, batch_mode: bool = False
 ) -> documentai.ProcessOptions:
-    """ProcessingConfig에서 최적 ProcessOptions를 구성."""
+    """Build optimal ProcessOptions from ProcessingConfig."""
     pc = config.processing
 
-    # 배치 처리에서는 return_images 미지원
+    # return_images is not supported in batch processing
     return_images = False if batch_mode else pc.return_images
 
     layout_config = documentai.ProcessOptions.LayoutConfig(
@@ -31,7 +31,7 @@ def build_process_options(
         ),
     )
 
-    # OCR 설정 (OCR 프로세서 전용 - Layout Parser에서는 사용 불가)
+    # OCR settings (OCR processor only - not available for Layout Parser)
     ocr_config = None
     if pc.enable_ocr_config:
         ocr_kwargs = {
@@ -64,18 +64,18 @@ def process_document(
     cache_path: str | None = None,
     raw_content: bytes | None = None,
 ) -> documentai.Document:
-    # 캐시된 응답이 있으면 로드
+    # Load cached response if available
     if cache_path:
         from pathlib import Path
 
         cache = Path(cache_path)
         if cache.exists():
-            logger.info(f"캐시된 응답 로드: {cache_path}")
+            logger.info(f"Loading cached response: {cache_path}")
             return documentai.Document.from_json(cache.read_text(encoding="utf-8"))
 
     client = create_client(config.location)
 
-    # 프로세서에서 설정된 기본 버전 사용
+    # Use the default version configured on the processor
     name = client.processor_path(
         config.project_id,
         config.location,
@@ -97,20 +97,20 @@ def process_document(
         gcs_document = documentai.GcsDocument(gcs_uri=gcs_uri, mime_type=mime_type)
         request = documentai.ProcessRequest(name=name, gcs_document=gcs_document)
     else:
-        raise ValueError("file_path 또는 gcs_uri 중 하나를 지정해야 합니다.")
+        raise ValueError("Either file_path or gcs_uri must be specified.")
 
     request.process_options = build_process_options(config)
 
     result = client.process_document(request=request, timeout=config.online_timeout)
     doc = result.document
 
-    # 응답 캐시 저장
+    # Save response cache
     if cache_path:
         from pathlib import Path
 
         cache = Path(cache_path)
         cache.parent.mkdir(parents=True, exist_ok=True)
         cache.write_text(type(doc).to_json(doc), encoding="utf-8")
-        logger.info(f"응답 캐시 저장: {cache_path}")
+        logger.info(f"Response cache saved: {cache_path}")
 
     return doc

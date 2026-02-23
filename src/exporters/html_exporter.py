@@ -9,11 +9,11 @@ from src.exporters.block_utils import collect_block_text, parse_heading_level
 
 
 class HTMLExporter:
-    """HTML 출력 - 3열 레이아웃.
+    """HTML output - 3-column layout.
 
-    1열: 목차 인덱스 (고정 사이드바, DART 스타일)
-    2열: OCR 파싱 텍스트 (메인 콘텐츠)
-    3열: 원본 PDF 이미지 (기본 숨김, 토글)
+    Column 1: Table of contents index (fixed sidebar, DART style)
+    Column 2: OCR parsed text (main content)
+    Column 3: Original PDF images (hidden by default, toggleable)
     """
 
     def __init__(
@@ -44,7 +44,7 @@ class HTMLExporter:
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(html_content)
 
-    # ── HTML 조립 ──────────────────────────────────────────────
+    # ── HTML Assembly ──────────────────────────────────────────
 
     def _build_html(self) -> str:
         self.headings = []
@@ -58,7 +58,7 @@ class HTMLExporter:
 
         page_blocks = self._group_blocks_by_page()
 
-        # 페이지별 HTML 렌더링 (heading 수집 포함)
+        # Render per-page HTML (including heading collection)
         pages_html: list[str] = []
         for page_num in range(page_count):
             pages_html.append(
@@ -68,7 +68,7 @@ class HTMLExporter:
         if pdf_doc:
             pdf_doc.close()
 
-        # 수집된 heading으로 인덱스 생성
+        # Build index from collected headings
         index_html = self._build_index()
 
         parts = [
@@ -118,13 +118,13 @@ class HTMLExporter:
         page_num: int,
         page_blocks: dict[int, list],
     ) -> str:
-        """페이지 섹션 렌더링: 텍스트 열 + 이미지 열."""
+        """Render a page section: text column + image column."""
         pn = page_num + 1
         parts = [f'<section class="page" id="page-{pn}">']
         parts.append(f'  <div class="page-divider">Page {pn}</div>')
         parts.append('  <div class="page-body">')
 
-        # 텍스트 열
+        # Text column
         parts.append('    <div class="text-col">')
         items = page_blocks.get(pn, [])
         if items:
@@ -142,7 +142,7 @@ class HTMLExporter:
             )
         parts.append("    </div>")
 
-        # 이미지 열
+        # Image column
         parts.append('    <div class="image-col">')
         if pdf_doc:
             img_tag = self._render_page_image(pdf_doc, page_num)
@@ -154,7 +154,7 @@ class HTMLExporter:
         return "\n".join(parts)
 
     def _build_index(self) -> str:
-        """수집된 heading 정보로 DART 스타일 목차 사이드바 생성."""
+        """Build a DART-style table of contents sidebar from collected heading data."""
         parts = ['<nav class="index-sidebar" id="index-sidebar">']
         parts.append('  <div class="index-header">')
         parts.append('    <span class="index-title">\ubaa9\ucc28</span>')
@@ -166,7 +166,7 @@ class HTMLExporter:
         )
         parts.append("  </div>")
 
-        # 원본 보기 토글 버튼
+        # Original view toggle buttons
         parts.append('  <div class="index-controls">')
         parts.append(
             '    <button id="lang-btn" class="lang-btn" '
@@ -194,7 +194,7 @@ class HTMLExporter:
         )
         parts.append("  </div>")
 
-        # 목차 리스트
+        # Table of contents list
         parts.append('  <ul class="index-list" id="index-list">')
         current_page = 0
         for h in self.headings:
@@ -219,17 +219,17 @@ class HTMLExporter:
         parts.append("</nav>")
         return "\n".join(parts)
 
-    # ── 페이지 분배 ────────────────────────────────────────────
+    # ── Page Distribution ──────────────────────────────────────
 
     def _group_blocks_by_page(self) -> dict[int, list]:
-        """document_layout.blocks를 page_span 기준으로 페이지별 분배.
+        """Distribute document_layout.blocks by page_span into per-page groups.
 
-        멀티 페이지 블록은 자식 블록의 page_span으로 각 페이지에 분배.
-        부모의 텍스트(heading)는 시작 페이지에만 할당.
+        Multi-page blocks are distributed to each page based on child block page_spans.
+        Parent text (headings) is assigned only to the start page.
 
         Returns:
             page_blocks[page_num] = [(block, render_mode), ...]
-            render_mode: 'full' (자식 포함 렌더링) 또는 'text_only' (자기 텍스트만)
+            render_mode: 'full' (render with children) or 'text_only' (own text only)
         """
         page_blocks: dict[int, list] = {}
         if not self.doc.document_layout:
@@ -245,7 +245,7 @@ class HTMLExporter:
         block: documentai.Document.DocumentLayout.DocumentLayoutBlock,
         page_blocks: dict[int, list],
     ) -> None:
-        """블록을 페이지별로 분배. 멀티 페이지 블록은 자식 기준으로 분배."""
+        """Distribute a block to pages. Multi-page blocks are distributed based on children."""
         page_start = block.page_span.page_start if block.page_span else 1
         page_end = block.page_span.page_end if block.page_span else page_start
 
@@ -253,7 +253,7 @@ class HTMLExporter:
             page_blocks.setdefault(page_start, []).append((block, "full"))
             return
 
-        # 멀티 페이지 블록: 자기 텍스트는 시작 페이지, 자식은 각 페이지별 분배
+        # Multi-page block: own text goes to start page, children distributed per page
         if block.text_block:
             if block.text_block.text and block.text_block.text.strip():
                 page_blocks.setdefault(page_start, []).append(
@@ -267,10 +267,10 @@ class HTMLExporter:
         elif block.table_block:
             page_blocks.setdefault(page_start, []).append((block, "full"))
 
-    # ── 렌더링 ─────────────────────────────────────────────────
+    # ── Rendering ──────────────────────────────────────────────
 
     def _render_page_image(self, pdf_doc: fitz.Document, page_num: int) -> str:
-        """PyMuPDF로 페이지를 이미지로 렌더링."""
+        """Render a page as an image using PyMuPDF."""
         page = pdf_doc[page_num]
         pix = page.get_pixmap(dpi=150)
         img_bytes = pix.tobytes("png")
@@ -294,7 +294,7 @@ class HTMLExporter:
             )
 
     def _make_heading(self, text: str, level: int, page_num: int) -> str:
-        """heading HTML 생성 및 인덱스용 정보 수집."""
+        """Generate heading HTML and collect index information."""
         self.heading_counter += 1
         hid = f"h-{self.heading_counter}"
         self.headings.append(
@@ -308,7 +308,7 @@ class HTMLExporter:
         block: documentai.Document.DocumentLayout.DocumentLayoutBlock,
         page_num: int = 0,
     ) -> str:
-        """블록의 자기 텍스트만 렌더링 (자식 블록 제외). 멀티 페이지 부모용."""
+        """Render only the block's own text (excluding children). For multi-page parent blocks."""
         if not block.text_block:
             return ""
         text = block.text_block.text.strip() if block.text_block.text else ""
@@ -326,7 +326,7 @@ class HTMLExporter:
         block: documentai.Document.DocumentLayout.DocumentLayoutBlock,
         page_num: int = 0,
     ) -> str:
-        """document_layout 블록을 HTML로 렌더링 (자식 블록 재귀 포함)."""
+        """Render a document_layout block as HTML (recursively including child blocks)."""
         parts: list[str] = []
 
         if block.text_block:
@@ -367,7 +367,7 @@ class HTMLExporter:
         self,
         table_block: documentai.Document.DocumentLayout.DocumentLayoutBlock.LayoutTableBlock,
     ) -> str:
-        """테이블 블록을 HTML 테이블로 변환. 열 수를 정규화."""
+        """Convert a table block to an HTML table. Normalizes column count."""
         all_rows = list(table_block.header_rows) + list(table_block.body_rows)
         if not all_rows:
             return ""
@@ -400,7 +400,7 @@ class HTMLExporter:
         self,
         cell: documentai.Document.DocumentLayout.DocumentLayoutBlock.LayoutTableCell,
     ) -> str:
-        """LayoutTableCell에서 텍스트 추출."""
+        """Extract text from a LayoutTableCell."""
         texts: list[str] = []
         for block in cell.blocks:
             collect_block_text(block, texts)
@@ -776,7 +776,7 @@ body.page-view.show-images .image-col {
 # ── JavaScript ─────────────────────────────────────────────────
 
 _JS = """
-// 다국어 지원
+// Internationalization support
 var _lang = 'ko';
 var _LANG = {
   ko: {
@@ -820,15 +820,15 @@ var _LANG = {
 };
 function t(key) { return _LANG[_lang][key] || key; }
 
-// 페이지 뷰 상태
+// Page view state
 var _pageViewActive = false;
 var _currentPage = 1;
 var _totalPages = 0;
 var _savedImagesState = false;
 
-// 원본 이미지 토글 (문자 단위 스크롤 위치 보존)
+// Toggle original images (preserves character-level scroll position)
 function toggleImages() {
-  // 페이지 뷰에서는 단순 토글 (스크롤 보존 불필요)
+  // In page view, simple toggle (no scroll preservation needed)
   if (_pageViewActive) {
     document.body.classList.toggle('show-images');
     var btn = document.getElementById('toggle-images-btn');
@@ -840,7 +840,7 @@ function toggleImages() {
   var content = document.getElementById('content-area');
   var contentRect = content.getBoundingClientRect();
 
-  // 1차: caretRangeFromPoint로 뷰포트 상단의 정확한 텍스트 문자를 앵커
+  // Primary: anchor to the exact text character at viewport top using caretRangeFromPoint
   var anchorRange = null;
   var anchorOffset = 0;
   var anchorEl = null;
@@ -849,7 +849,7 @@ function toggleImages() {
   var useProportional = false;
 
   if (document.caretRangeFromPoint) {
-    // 텍스트 열 영역 탐색
+    // Search within text column area
     var allTextCols = content.querySelectorAll('.text-col');
     var probeX = 0, probeY = contentRect.top + 10;
     for (var tc = 0; tc < allTextCols.length; tc++) {
@@ -863,7 +863,7 @@ function toggleImages() {
     if (probeX > 0) {
       var caret = document.caretRangeFromPoint(probeX, probeY);
       if (caret && caret.startContainer.nodeType === 3) {
-        // 부모 텍스트 요소가 뷰포트 위로 확장되는지 확인
+        // Check if parent text element extends above the viewport
         var parentEl = caret.startContainer.parentElement;
         while (parentEl && !parentEl.matches(
           'p, li, h1, h2, h3, td, th, .page-divider'
@@ -871,7 +871,7 @@ function toggleImages() {
         var useCaretAnchor = true;
         if (parentEl) {
           var parentRect = parentEl.getBoundingClientRect();
-          // 긴 문단이 뷰포트 위로 확장 → 비례 요소 앵커가 더 안정적
+          // Long paragraph extends above viewport -> proportional element anchor is more stable
           if (parentRect.top < contentRect.top - 20) {
             useCaretAnchor = false;
           }
@@ -892,7 +892,7 @@ function toggleImages() {
     }
   }
 
-  // 2차 폴백: 요소 단위 앵커
+  // Secondary fallback: element-level anchor
   if (!anchorRange) {
     var els = content.querySelectorAll(
       '.text-col h1, .text-col h2, .text-col h3, .text-col p, '
@@ -917,25 +917,25 @@ function toggleImages() {
     }
   }
 
-  // transition 일시 비활성화
+  // Temporarily disable transitions
   var textCols = content.querySelectorAll('.text-col');
   var imageCols = content.querySelectorAll('.image-col');
   textCols.forEach(function(el) { el.style.transition = 'none'; });
   imageCols.forEach(function(el) { el.style.transition = 'none'; });
 
-  // 토글
+  // Toggle
   document.body.classList.toggle('show-images');
   var btn = document.getElementById('toggle-images-btn');
   var on = document.body.classList.contains('show-images');
   btn.textContent = on ? t('hideOriginal') : t('showOriginal');
   btn.classList.toggle('active', on);
 
-  // 스크롤 위치 복원
+  // Restore scroll position
   void content.offsetHeight;
   var newContentRect = content.getBoundingClientRect();
 
   if (anchorRange) {
-    // 문자 단위 정밀 복원
+    // Character-level precise restoration
     var newRR = anchorRange.getBoundingClientRect();
     content.scrollTop += (newRR.top - newContentRect.top) - anchorOffset;
   } else if (anchorEl) {
@@ -950,14 +950,14 @@ function toggleImages() {
     content.scrollTop += currentOffset - desiredOffset;
   }
 
-  // transition 복원
+  // Restore transitions
   requestAnimationFrame(function() {
     textCols.forEach(function(el) { el.style.transition = ''; });
     imageCols.forEach(function(el) { el.style.transition = ''; });
   });
 }
 
-// Excel 복사
+// Copy for Excel
 function copyForExcel() {
   var content = document.getElementById('content-area');
   var pages = content.querySelectorAll('.page');
@@ -1024,7 +1024,7 @@ function fallbackCopy(html, btn) {
   document.body.removeChild(tmp);
 }
 
-// 언어 전환
+// Language toggle
 function toggleLang() {
   _lang = (_lang === 'ko') ? 'en' : 'ko';
   applyLang();
@@ -1052,7 +1052,7 @@ function applyLang() {
   if (hint) hint.textContent = t('shortcutHint');
 }
 
-// 사이드바 토글
+// Sidebar toggle
 function toggleSidebar() {
   document.body.classList.toggle('sidebar-collapsed');
   var sb = document.getElementById('index-sidebar');
@@ -1063,7 +1063,7 @@ function expandSidebar() {
   document.getElementById('index-sidebar').classList.remove('collapsed');
 }
 
-// 키보드 단축키
+// Keyboard shortcuts
 document.addEventListener('keydown', function(e) {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
   var k = e.key.toLowerCase();
@@ -1076,13 +1076,13 @@ document.addEventListener('keydown', function(e) {
   if (_pageViewActive && e.key === 'ArrowRight') { e.preventDefault(); navigatePage(1); }
 });
 
-// DOM 로드 후 이벤트
+// Events after DOM load
 document.addEventListener('DOMContentLoaded', function() {
   var content = document.getElementById('content-area');
   var indexItems = document.querySelectorAll('.index-item');
   var headings = content.querySelectorAll('h1[id], h2[id], h3[id]');
 
-  // 목차 클릭 → 부드러운 스크롤
+  // TOC click -> smooth scroll
   indexItems.forEach(function(item) {
     var link = item.querySelector('a');
     if (!link) return;
@@ -1109,7 +1109,7 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   });
 
-  // 스크롤 시 현재 heading 하이라이트
+  // Highlight current heading on scroll
   var ticking = false;
   content.addEventListener('scroll', function() {
     if (_pageViewActive) return;
@@ -1139,10 +1139,10 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   });
 
-  // 페이지 뷰: 총 페이지 수 초기화
+  // Page view: initialize total page count
   _totalPages = content.querySelectorAll('.page').length;
 
-  // 페이지 뷰: text-col 스크롤 시 heading 하이라이트
+  // Page view: highlight heading on text-col scroll
   content.querySelectorAll('.text-col').forEach(function(tc) {
     tc.addEventListener('scroll', function() {
       if (!_pageViewActive) return;
@@ -1169,7 +1169,7 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 });
 
-// 페이지 뷰 함수들
+// Page view functions
 function findCurrentVisiblePage() {
   var content = document.getElementById('content-area');
   var contentRect = content.getBoundingClientRect();
@@ -1181,7 +1181,7 @@ function findCurrentVisiblePage() {
       return i + 1;
     }
   }
-  // 폴백: 뷰포트 상단 근처 페이지
+  // Fallback: page near viewport top
   for (var j = 0; j < pages.length; j++) {
     var r2 = pages[j].getBoundingClientRect();
     if (r2.bottom > contentRect.top + 50) {
@@ -1215,11 +1215,11 @@ function togglePageView() {
   var btn = document.getElementById('page-view-btn');
 
   if (!_pageViewActive) {
-    // 진입: 현재 보이는 페이지 감지
+    // Enter: detect currently visible page
     _currentPage = findCurrentVisiblePage();
     content._savedScrollTop = content.scrollTop;
 
-    // 페이지 뷰 모드 활성화 (이미지 상태 유지)
+    // Activate page view mode (preserve image state)
     document.body.classList.add('page-view');
     _pageViewActive = true;
     showPage(_currentPage);
@@ -1227,13 +1227,13 @@ function togglePageView() {
     btn.textContent = t('continuousView');
     btn.classList.add('active');
   } else {
-    // 복귀
+    // Return to continuous view
     _pageViewActive = false;
     document.body.classList.remove('page-view');
     var pages = content.querySelectorAll('.page');
     pages.forEach(function(p) { p.classList.remove('active-page'); });
 
-    // 마지막 본 페이지 위치로 스크롤 복원
+    // Restore scroll to last viewed page position
     var targetPage = document.getElementById('page-' + _currentPage);
     if (targetPage) {
       void content.offsetHeight;

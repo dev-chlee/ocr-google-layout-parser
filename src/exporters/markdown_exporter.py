@@ -6,7 +6,7 @@ from src.exporters.block_utils import collect_block_text, parse_heading_level
 
 
 class MarkdownExporter:
-    """Markdown 출력 - LLM 처리용. DocumentLayout 블록 기반 구조화된 Markdown 생성."""
+    """Markdown output for LLM processing. Generates structured Markdown from DocumentLayout blocks."""
 
     def __init__(self, document: documentai.Document):
         self.doc = document
@@ -21,16 +21,16 @@ class MarkdownExporter:
     def _build_markdown(self) -> str:
         parts: list[str] = []
 
-        # DocumentLayout 블록 기반 (계층 구조 보존)
+        # DocumentLayout block-based (preserves hierarchy)
         if self.doc.document_layout and self.doc.document_layout.blocks:
             for block in self.doc.document_layout.blocks:
                 self._render_block(block, parts)
-        # chunked_document 기반 (fallback)
+        # chunked_document based (fallback)
         elif self.doc.chunked_document and self.doc.chunked_document.chunks:
             for chunk in self.doc.chunked_document.chunks:
                 parts.append(chunk.content)
                 parts.append("\n\n---\n\n")
-        # 일반 텍스트 (fallback)
+        # Plain text (fallback)
         elif self.doc.text:
             parts.append(self.doc.text)
 
@@ -51,7 +51,7 @@ class MarkdownExporter:
             text = block.text_block.text.strip()
 
             if block_type == "footer":
-                return  # 페이지 번호 등 footer 생략
+                return  # Skip footer (page numbers, etc.)
             elif "heading" in block_type:
                 level = parse_heading_level(block_type)
                 parts.append(f"{'#' * level} {text}\n")
@@ -75,10 +75,10 @@ class MarkdownExporter:
                         child_block, parts, depth,
                         list_marker=marker, list_indent=list_indent,
                     )
-                    # 엔트리 내 첫 블록만 마커, 이후는 continuation
+                    # Only the first block in an entry gets a marker; rest are continuation
                     marker = f"{'  ' if is_ordered else ' '} "
 
-        # 재귀적으로 자식 블록 처리
+        # Recursively process child blocks
         if block.text_block and block.text_block.blocks:
             child_indent = list_indent + 1 if list_marker else list_indent
             for child in block.text_block.blocks:
@@ -97,12 +97,12 @@ class MarkdownExporter:
 
         rows_data: list[list[str]] = []
 
-        # 헤더 행
+        # Header rows
         for row in table_block.header_rows:
             cells = [self._extract_cell_text(cell) for cell in row.cells]
             rows_data.append(cells)
 
-        # 본문 행
+        # Body rows
         for row in table_block.body_rows:
             cells = [self._extract_cell_text(cell) for cell in row.cells]
             rows_data.append(cells)
@@ -110,13 +110,13 @@ class MarkdownExporter:
         if not rows_data:
             return
 
-        # 열 수 통일
+        # Normalize column count
         max_cols = max(len(r) for r in rows_data)
         for row in rows_data:
             while len(row) < max_cols:
                 row.append("")
 
-        # Markdown 테이블 생성
+        # Generate Markdown table
         header = rows_data[0]
         parts.append("| " + " | ".join(header) + " |")
         parts.append("| " + " | ".join("---" for _ in header) + " |")
@@ -129,7 +129,7 @@ class MarkdownExporter:
         self,
         cell: documentai.Document.DocumentLayout.DocumentLayoutBlock.LayoutTableCell,
     ) -> str:
-        """LayoutTableCell에서 텍스트 추출. cell.blocks를 재귀 탐색."""
+        """Extract text from LayoutTableCell. Recursively traverses cell.blocks."""
         texts: list[str] = []
         for block in cell.blocks:
             collect_block_text(block, texts)
