@@ -15,33 +15,10 @@ src/
 ├── processor.py           # process_document() - Layout Parser API 호출
 ├── batch_processor.py     # BatchProcessor - GCS 다중 파일 배치 처리 (500p)
 ├── exporters/
-│   ├── block_utils.py     # 블록 텍스트 추출 유틸 (collect_block_text, parse_heading_level)
 │   ├── html_exporter.py   # HTMLExporter - PyMuPDF 페이지 렌더링 + 텍스트 토글
 │   └── markdown_exporter.py # MarkdownExporter - document_layout.blocks 기반
 └── main.py                # CLI 진입점 (argparse) - 단일/다중 파일 라우팅
 ```
-
-### Data Flow
-
-```
-PDF Input
-  ↓
-main.py: 파일 수집 + 라우팅 결정
-  ↓                              ↓
-processor.py (온라인 API)    batch_processor.py (GCS 배치)
-  ↓                              ↓
-  documentai.Document  ←─────────┘
-  ↓                    ↓
-HTMLExporter       MarkdownExporter
-(pdf_bytes→이미지)  (document_layout.blocks 순회)
-  ↓                    ↓
-.html              .md
-```
-
-- 온라인/배치 모두 동일한 `documentai.Document` 객체를 반환하여 exporter에 전달
-- HTML exporter는 `pdf_bytes`도 필요 (PyMuPDF로 페이지 이미지 렌더링)
-- 두 exporter 모두 `block_utils.py`의 재귀 텍스트 추출 함수 공유
-- 블록 순회: `document_layout.blocks` → text_block/table_block/list_block 분기 → 자식 blocks 재귀
 
 ## Commands
 
@@ -51,9 +28,6 @@ uv sync
 
 # 단일 파일 처리 (HTML + Markdown)
 uv run python -m src.main --file samples/sample4-p10.pdf --output output
-
-# 설치된 엔트리포인트로 실행 (동일)
-uv run gcs-ocr --file samples/sample4-p10.pdf --output output
 
 # HTML만 (이미지 base64 임베드)
 uv run python -m src.main --file samples/sample4-p10.pdf --format html --embed-images
@@ -86,7 +60,6 @@ uv run python -m src.main --batch gs://bucket/input/ --batch-output gs://bucket/
 - Layout Parser는 OCR 프로세서가 아님 → OcrConfig 전송 시 "Premium OCR" 오류 발생
 - `enable_ocr_config=false` (기본값) - Layout Parser 사용 시 OcrConfig 비활성화
 - OCR 프로세서 사용 시 `.env`에서 `ENABLE_OCR_CONFIG=true`로 변경
-- 배치 모드에서는 `return_images` 미지원 → `build_process_options(batch_mode=True)` 시 자동으로 `False`
 
 ### Layout Parser 응답 구조 (기존 OCR과 다름)
 - `doc.pages` → dimension/blocks/paragraphs 모두 비어있음 (0)
@@ -94,7 +67,6 @@ uv run python -m src.main --batch gs://bucket/input/ --batch-output gs://bucket/
 - **모든 콘텐츠**: `doc.document_layout.blocks` (text_block, table_block, list_block)
 - `doc.chunked_document.chunks` → 청킹된 콘텐츠
 - bounding box 없음, page dimensions 0 → absolute positioning 불가
-- MarkdownExporter fallback 순서: document_layout.blocks → chunked_document.chunks → doc.text
 
 ### SDK 타입 필드 (proto 기반)
 - `LayoutTableCell`: `blocks`, `row_span`, `col_span` (NOT text_block)
@@ -111,20 +83,16 @@ uv run python -m src.main --batch gs://bucket/input/ --batch-output gs://bucket/
 - `GCS_BUCKET` 환경변수 필요 (`.env`에 설정)
 - 처리 로그: `output/processing.log`에 기록
 
-### Python 3.14 + Windows Workaround
-- `main.py` 최상단에 `platform._uname_cache` 패치 — `platform.uname()`이 WMI 쿼리 시 무한 대기하는 버그 회피
-- aiohttp 등이 import 시점에 `platform.system()`을 호출하므로 **모든 import보다 앞에** 위치해야 함
-
 ## Configuration
 
-- `.env`에 GCP_PROJECT_ID, DOCUMENTAI_PROCESSOR_ID, GOOGLE_APPLICATION_CREDENTIALS 설정 (`.env.example` 참조)
+- `.env`에 GCP_PROJECT_ID, DOCUMENTAI_PROCESSOR_ID, GOOGLE_APPLICATION_CREDENTIALS 설정
 - `GCS_BUCKET`: 15페이지 초과 PDF 배치 처리용 GCS 버킷 이름
 - 서비스 계정 키: gitignored (*.json)
 - 프로세서: 기본 버전 사용 (processor_path, NOT processor_version_path)
 
 ## Tech Stack
 
-- Python >=3.11 + uv
-- google-cloud-documentai / google-cloud-storage
+- Python 3.14 + uv
+- google-cloud-documentai / google-cloud-documentai-toolbox
 - PyMuPDF (페이지 이미지 렌더링)
 - python-dotenv (환경변수)
