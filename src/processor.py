@@ -1,9 +1,12 @@
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from google.api_core.client_options import ClientOptions
 from google.cloud import documentai
 
 from src.config import DocumentAIConfig
+from src.merger import merge_documents
+from src.splitter import split_pdf
 
 logger = logging.getLogger("docai")
 
@@ -114,3 +117,85 @@ def process_document(
         logger.info(f"Response cache saved: {cache_path}")
 
     return doc
+
+
+def process_document_parallel(
+    config: DocumentAIConfig,
+    pdf_bytes: bytes,
+    chunk_size: int | None = None,
+    max_workers: int = 4,
+    cache_path: str | None = None,
+) -> documentai.Document:
+    """Split PDF into chunks and process them in parallel via online API.
+
+    Args:
+        config: Document AI configuration.
+        pdf_bytes: Raw PDF bytes.
+        chunk_size: Pages per chunk (defaults to config.max_online_pages).
+        max_workers: Maximum parallel API calls.
+        cache_path: If set, load/save merged result from/to this path.
+
+    Returns:
+        A single merged Document with adjusted page_spans.
+    """
+    # Load cached merged response if available
+    if cache_path:
+        from pathlib import Path
+
+        cache = Path(cache_path)
+        if cache.exists():
+            logger.info(f"Loading cached response: {cache_path}")
+            return documentai.Document.from_json(cache.read_text(encoding="utf-8"))
+
+    if chunk_size is None:
+        chunk_size = config.max_online_pages
+
+    chunks = split_pdf(pdf_bytes, chunk_size)
+
+    if len(chunks) == 1:
+        return process_document(config, raw_content=chunks[0][0])
+
+    # Process chunks in parallel
+    docs: list[tuple[int, documentai.Document]] = []
+    effective_workers = min(max_workers, len(chunks))
+    logger.info(
+        f"Parallel processing: {len(chunks)} chunks, {effective_workers} workers"
+    )
+
+    with ThreadPoolExecutor(max_workers=effective_workers) as executor:
+        future_to_idx = {}
+        for idx, (chunk_bytes, _offset) in enumerate(chunks):
+            future = executor.submit(
+                process_document, config, raw_content=chunk_bytes
+            )
+            future_to_idx[future] = idx
+
+        try:
+            for future in as_completed(future_to_idx):
+                idx = future_to_idx[future]
+                doc = future.result()
+                docs.append((idx, doc))
+                logger.info(f"Chunk {idx + 1}/{len(chunks)} complete")
+        except Exception:
+            # Cancel queued futures to avoid wasted API calls
+            for f in future_to_idx:
+                f.cancel()
+            raise
+
+    # Sort by original chunk order and merge
+    docs.sort(key=lambda x: x[0])
+    ordered_docs = [doc for _, doc in docs]
+    page_offsets = [offset for _, offset in chunks]
+
+    merged = merge_documents(ordered_docs, page_offsets)
+
+    # Save merged response cache
+    if cache_path:
+        from pathlib import Path
+
+        cache = Path(cache_path)
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text(type(merged).to_json(merged), encoding="utf-8")
+        logger.info(f"Response cache saved: {cache_path}")
+
+    return merged
