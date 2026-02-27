@@ -25,7 +25,7 @@ from src.config import DocumentAIConfig
 from src.exporters.html_exporter import HTMLExporter
 from src.exporters.markdown_exporter import MarkdownExporter
 from src.logger import fmt_size, log_timer, setup_logging
-from src.processor import process_document
+from src.processor import process_document, process_document_parallel
 
 
 def main():
@@ -61,12 +61,23 @@ def main():
         "--chunk-size",
         type=int,
         default=None,
-        help="Override chunk size (in tokens, default: .env value)",
+        help="Override Document AI chunking token size (default: .env CHUNK_SIZE)",
     )
     parser.add_argument(
         "--cache",
         default=None,
         help="API response cache file path (load if exists, save otherwise)",
+    )
+    parser.add_argument(
+        "--max-workers",
+        type=int,
+        default=4,
+        help="Parallel API call workers for large PDFs (default: 4, max: 10)",
+    )
+    parser.add_argument(
+        "--no-parallel",
+        action="store_true",
+        help="Disable parallel chunked processing (force GCS batch for large PDFs)",
     )
     args = parser.parse_args()
 
@@ -76,6 +87,7 @@ def main():
     # Override chunk-size from CLI
     if args.chunk_size is not None:
         config.processing.chunk_size = args.chunk_size
+    args.max_workers = max(1, min(args.max_workers, 10))
     Path(args.output).mkdir(parents=True, exist_ok=True)
 
     if args.batch:
@@ -132,7 +144,7 @@ def _collect_pdf_files(args) -> list[str]:
 
 
 def _run_single_local(config, args, pdf_path: str, logger) -> None:
-    """Process a single local PDF (online API or automatic batch)."""
+    """Process a single local PDF (online API, parallel chunked, or batch)."""
     file_path = Path(pdf_path)
     with open(file_path, "rb") as f:
         pdf_bytes = f.read()
@@ -142,22 +154,47 @@ def _run_single_local(config, args, pdf_path: str, logger) -> None:
 
     logger.info(f"Processing: {file_path.name} ({page_count} pages)")
 
-    use_batch = page_count > config.max_online_pages
+    needs_splitting = page_count > config.max_online_pages
+    use_parallel = needs_splitting and not args.no_parallel
 
-    if use_batch:
+    if use_parallel:
+        # Split + parallel online API
+        logger.info(
+            f"Mode: parallel chunked online API - "
+            f"{page_count} pages, {config.max_online_pages} pages/chunk"
+        )
+        start_time = time.time()
+        try:
+            with log_timer(logger, "Parallel API complete"):
+                doc = process_document_parallel(
+                    config,
+                    pdf_bytes,
+                    max_workers=args.max_workers,
+                    cache_path=args.cache,
+                )
+        except Exception as e:
+            if not config.gcs_bucket:
+                raise
+            logger.warning(f"Parallel processing failed: {e}")
+            logger.info("Falling back to GCS batch processing...")
+            with log_timer(logger, "Batch API fallback complete"):
+                doc = _run_batch_fallback(config, pdf_path, logger)
+        total_time = time.time() - start_time
+    elif needs_splitting:
+        # --no-parallel or fallback: GCS batch
         if not config.gcs_bucket:
             raise ValueError(
                 f"PDF has {page_count} pages, exceeding the online processing limit "
-                f"({config.max_online_pages} pages). Set GCS_BUCKET in .env for batch processing."
+                f"({config.max_online_pages} pages). "
+                f"Set GCS_BUCKET in .env for batch processing, "
+                f"or remove --no-parallel to use parallel chunked processing."
             )
         logger.info(
             f"Mode: batch (GCS) - {page_count} pages > {config.max_online_pages}"
         )
         start_time = time.time()
-        processor = BatchProcessor(config)
         with log_timer(logger, "Batch API complete"):
-            results = processor.process_local_files([pdf_path])
-        doc = next(iter(results.values()))
+            doc = _run_batch_fallback(config, pdf_path, logger)
         total_time = time.time() - start_time
     else:
         logger.info("Mode: online API")
@@ -174,6 +211,13 @@ def _run_single_local(config, args, pdf_path: str, logger) -> None:
     _export(doc, pdf_bytes, base_name, args.output, args, logger)
 
     logger.info(f"Total time: {total_time:.1f}s")
+
+
+def _run_batch_fallback(config, pdf_path: str, logger):
+    """Run GCS batch processing for a single file and return the Document."""
+    processor = BatchProcessor(config)
+    results = processor.process_local_files([pdf_path])
+    return next(iter(results.values()))
 
 
 def _run_single_gcs(config, args, logger) -> None:
