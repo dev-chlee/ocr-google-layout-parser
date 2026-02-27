@@ -104,7 +104,7 @@ def main():
         elif len(pdf_files) == 1:
             _run_single_local(config, args, pdf_files[0], logger)
         elif len(pdf_files) >= 2:
-            _run_batch_local(config, args, pdf_files, logger)
+            _run_multi_local(config, args, pdf_files, logger)
         else:
             parser.error("No PDF files to process.")
     else:
@@ -143,7 +143,7 @@ def _collect_pdf_files(args) -> list[str]:
     return pdf_files
 
 
-def _run_single_local(config, args, pdf_path: str, logger) -> None:
+def _run_single_local(config, args, pdf_path: str, logger, output_dir: str | None = None) -> None:
     """Process a single local PDF (online API, parallel chunked, or batch)."""
     file_path = Path(pdf_path)
     with open(file_path, "rb") as f:
@@ -208,7 +208,8 @@ def _run_single_local(config, args, pdf_path: str, logger) -> None:
         total_time = time.time() - start_time
 
     base_name = file_path.stem
-    _export(doc, pdf_bytes, base_name, args.output, args, logger)
+    out = output_dir or args.output
+    _export(doc, pdf_bytes, base_name, out, args, logger)
 
     logger.info(f"Total time: {total_time:.1f}s")
 
@@ -240,51 +241,32 @@ def _run_single_gcs(config, args, logger) -> None:
     logger.info(f"Total time: {total_time:.1f}s")
 
 
-def _run_batch_local(config, args, pdf_files: list[str], logger) -> None:
-    """Process multiple local PDFs in a single batch run."""
-    if not config.gcs_bucket:
-        raise ValueError(
-            "Set GCS_BUCKET in .env for multi-file batch processing."
-        )
-
+def _run_multi_local(config, args, pdf_files: list[str], logger) -> None:
+    """Process multiple local PDFs individually (online/parallel per file)."""
     file_names = [Path(f).name for f in pdf_files]
     logger.info(f"Processing: {len(pdf_files)} files ({', '.join(file_names)})")
-    logger.info("Mode: batch (GCS)")
 
     start_time = time.time()
-    processor = BatchProcessor(config)
+    results: list[tuple[str, str]] = []  # (base_name, output_dir)
 
-    with log_timer(logger, "Batch API complete"):
-        results = processor.process_local_files(pdf_files)
+    for i, pdf_path in enumerate(pdf_files, 1):
+        base_name = Path(pdf_path).stem
+        file_output_dir = str(Path(args.output) / base_name)
+        Path(file_output_dir).mkdir(parents=True, exist_ok=True)
 
-    # Read PDF bytes and check page counts per file
-    file_info: dict[str, tuple[bytes, int]] = {}
-    for pdf_path in pdf_files:
-        p = Path(pdf_path)
-        pdf_bytes = p.read_bytes()
-        with fitz.open(stream=pdf_bytes, filetype="pdf") as pdf_doc:
-            file_info[p.stem] = (pdf_bytes, len(pdf_doc))
-
-    # Generate HTML/MD in per-file output folders
-    with log_timer(logger, "HTML/MD generation complete"):
-        for base_name, doc in results.items():
-            file_output_dir = str(Path(args.output) / base_name)
-            Path(file_output_dir).mkdir(parents=True, exist_ok=True)
-
-            pdf_bytes_for_file = file_info.get(base_name, (None, 0))[0]
-            _export(doc, pdf_bytes_for_file, base_name, file_output_dir, args, logger)
+        logger.info(f"─── [{i}/{len(pdf_files)}] {Path(pdf_path).name} ───")
+        _run_single_local(config, args, pdf_path, logger, output_dir=file_output_dir)
+        results.append((base_name, file_output_dir))
 
     total_time = time.time() - start_time
 
     # Processing results summary
     logger.info("─" * 40)
     logger.info("Results:")
-    for base_name, doc in results.items():
-        page_count = file_info.get(base_name, (None, 0))[1]
-        file_output_dir = Path(args.output) / base_name
-        sizes = _get_output_sizes(file_output_dir, base_name)
-        logger.info(f"  {base_name}.pdf ({page_count}p) → {file_output_dir}/ ({sizes})")
-    logger.info(f"Total time: {total_time:.1f}s")
+    for base_name, file_output_dir in results:
+        sizes = _get_output_sizes(Path(file_output_dir), base_name)
+        logger.info(f"  {base_name} → {file_output_dir}/ ({sizes})")
+    logger.info(f"Total time ({len(pdf_files)} files): {total_time:.1f}s")
 
 
 def _export(doc, pdf_bytes, base_name, output_dir, args, logger) -> None:
