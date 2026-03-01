@@ -28,6 +28,7 @@ output/
 
 # Claude Code
 .claude/
+!.claude/skills/
 CLAUDE.md
 
 # Root-level PDF duplicates
