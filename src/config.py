@@ -74,10 +74,23 @@ class DocumentAIConfig:
             enable_math_ocr=_bool("ENABLE_MATH_OCR", "false"),
         )
 
+        project_id = os.environ.get("GCP_PROJECT_ID")
+        processor_id = os.environ.get("DOCUMENTAI_PROCESSOR_ID")
+        missing = []
+        if not project_id:
+            missing.append("GCP_PROJECT_ID")
+        if not processor_id:
+            missing.append("DOCUMENTAI_PROCESSOR_ID")
+        if missing:
+            raise ValueError(
+                f"Required environment variable(s) not set: {', '.join(missing)}. "
+                f"See .env.example for configuration details."
+            )
+
         return cls(
-            project_id=os.environ["GCP_PROJECT_ID"],
+            project_id=project_id,
             location=os.environ.get("GCP_LOCATION", "us"),
-            processor_id=os.environ["DOCUMENTAI_PROCESSOR_ID"],
+            processor_id=processor_id,
             gcs_bucket=os.environ.get("GCS_BUCKET"),
             max_online_pages=int(os.environ.get("MAX_ONLINE_PAGES", "15")),
             online_timeout=int(os.environ.get("ONLINE_TIMEOUT", "600")),

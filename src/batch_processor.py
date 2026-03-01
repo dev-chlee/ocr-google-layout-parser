@@ -6,6 +6,7 @@ from pathlib import Path
 from google.cloud import documentai, storage
 
 from src.config import DocumentAIConfig
+from src.merger import merge_documents
 from src.processor import build_process_options, create_client
 
 logger = logging.getLogger("docai")
@@ -146,18 +147,37 @@ class BatchProcessor:
                 f"Batch processing result not found: gs://{bucket_name}/{output_prefix}"
             )
 
-        # There may be multiple shards - sort by shardIndex
-        all_docs = []
+        # There may be multiple shards - sort by shardIndex and merge
+        all_shards = []
         for blob in sorted(json_blobs, key=lambda b: b.name):
             content = blob.download_as_text(encoding="utf-8")
             doc_dict = json.loads(content)
             shard_idx = doc_dict.get("shardInfo", {}).get("shardIndex", 0)
-            all_docs.append((shard_idx, content))
+            all_shards.append((shard_idx, content))
 
-        all_docs.sort(key=lambda x: x[0])
-        if len(all_docs) > 1:
-            logger.warning(f"Found {len(all_docs)} shards - using first only, remaining content may be missing")
-        return documentai.Document.from_json(all_docs[0][1])
+        all_shards.sort(key=lambda x: x[0])
+
+        if len(all_shards) == 1:
+            return documentai.Document.from_json(all_shards[0][1])
+
+        # Multiple shards: parse each, compute page offsets, and merge
+        logger.info(f"Merging {len(all_shards)} shards")
+        docs = []
+        page_offsets = [0]
+        for _idx, shard_json in all_shards:
+            doc = documentai.Document.from_json(shard_json)
+            docs.append(doc)
+
+        # Compute page offsets from each shard's max page_end
+        for doc in docs[:-1]:
+            max_page = 0
+            if doc.document_layout:
+                for block in doc.document_layout.blocks:
+                    if block.page_span:
+                        max_page = max(max_page, block.page_span.page_end)
+            page_offsets.append(page_offsets[-1] + max_page + 1)
+
+        return merge_documents(docs, page_offsets)
 
     def _upload_to_gcs(
         self, local_path: Path, bucket_name: str, gcs_path: str
@@ -167,28 +187,6 @@ class BatchProcessor:
         blob = bucket.blob(gcs_path)
         blob.upload_from_filename(str(local_path))
         return f"gs://{bucket_name}/{gcs_path}"
-
-    def _cleanup_gcs(self, bucket_name: str, gcs_path: str) -> None:
-        """Delete a single file from GCS."""
-        try:
-            bucket = self.storage_client.bucket(bucket_name)
-            blob = bucket.blob(gcs_path)
-            blob.delete()
-            logger.info(f"GCS cleanup: gs://{bucket_name}/{gcs_path}")
-        except Exception as e:
-            logger.warning(f"GCS cleanup failed (ignored): {e}")
-
-    def _cleanup_gcs_prefix(self, bucket_name: str, prefix: str) -> None:
-        """Delete all files under a GCS prefix."""
-        try:
-            bucket = self.storage_client.bucket(bucket_name)
-            blobs = list(bucket.list_blobs(prefix=prefix))
-            for blob in blobs:
-                blob.delete()
-            if blobs:
-                logger.info(f"GCS cleanup: gs://{bucket_name}/{prefix} ({len(blobs)} files)")
-        except Exception as e:
-            logger.warning(f"GCS cleanup failed (ignored): {e}")
 
     def process_batch(
         self,

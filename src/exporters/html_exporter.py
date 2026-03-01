@@ -50,23 +50,17 @@ class HTMLExporter:
         self.headings = []
         self.heading_counter = 0
 
-        pdf_doc = None
         page_count = 0
-        if self.pdf_bytes:
-            pdf_doc = fitz.open(stream=self.pdf_bytes, filetype="pdf")
-            page_count = len(pdf_doc)
-
         page_blocks = self._group_blocks_by_page()
-
-        # Render per-page HTML (including heading collection)
         pages_html: list[str] = []
-        for page_num in range(page_count):
-            pages_html.append(
-                self._render_page_section(pdf_doc, page_num, page_blocks)
-            )
 
-        if pdf_doc:
-            pdf_doc.close()
+        if self.pdf_bytes:
+            with fitz.open(stream=self.pdf_bytes, filetype="pdf") as pdf_doc:
+                page_count = len(pdf_doc)
+                for page_num in range(page_count):
+                    pages_html.append(
+                        self._render_page_section(pdf_doc, page_num, page_blocks)
+                    )
 
         # Build index from collected headings
         index_html = self._build_index()

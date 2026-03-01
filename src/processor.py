@@ -1,5 +1,6 @@
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 
 from google.api_core.client_options import ClientOptions
 from google.cloud import documentai
@@ -69,8 +70,6 @@ def process_document(
 ) -> documentai.Document:
     # Load cached response if available
     if cache_path:
-        from pathlib import Path
-
         cache = Path(cache_path)
         if cache.exists():
             logger.info(f"Loading cached response: {cache_path}")
@@ -109,8 +108,6 @@ def process_document(
 
     # Save response cache
     if cache_path:
-        from pathlib import Path
-
         cache = Path(cache_path)
         cache.parent.mkdir(parents=True, exist_ok=True)
         cache.write_text(type(doc).to_json(doc), encoding="utf-8")
@@ -140,8 +137,6 @@ def process_document_parallel(
     """
     # Load cached merged response if available
     if cache_path:
-        from pathlib import Path
-
         cache = Path(cache_path)
         if cache.exists():
             logger.info(f"Loading cached response: {cache_path}")
@@ -177,7 +172,7 @@ def process_document_parallel(
                 docs.append((idx, doc))
                 logger.info(f"Chunk {idx + 1}/{len(chunks)} complete")
         except Exception:
-            # Cancel queued futures to avoid wasted API calls
+            # Cancel pending (not yet started) futures
             for f in future_to_idx:
                 f.cancel()
             raise
@@ -191,8 +186,6 @@ def process_document_parallel(
 
     # Save merged response cache
     if cache_path:
-        from pathlib import Path
-
         cache = Path(cache_path)
         cache.parent.mkdir(parents=True, exist_ok=True)
         cache.write_text(type(merged).to_json(merged), encoding="utf-8")
