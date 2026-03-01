@@ -5,14 +5,17 @@ import sys
 # Workaround: Python 3.14 + Windows bug where platform.uname() hangs on WMI query.
 # Libraries like aiohttp call platform.system()/machine() at import time,
 # so this must be placed before all other imports.
-if sys.platform == "win32" and platform._uname_cache is None:
-    platform._uname_cache = platform.uname_result(
-        "Windows",
-        os.environ.get("COMPUTERNAME", ""),
-        "10",
-        platform._syscmd_ver()[2] or "10.0",
-        os.environ.get("PROCESSOR_ARCHITECTURE", "AMD64"),
-    )
+if sys.platform == "win32" and hasattr(platform, "_uname_cache") and platform._uname_cache is None:
+    try:
+        platform._uname_cache = platform.uname_result(
+            "Windows",
+            os.environ.get("COMPUTERNAME", ""),
+            "10",
+            platform._syscmd_ver()[2] or "10.0",
+            os.environ.get("PROCESSOR_ARCHITECTURE", "AMD64"),
+        )
+    except Exception:
+        pass
 
 import argparse
 import time

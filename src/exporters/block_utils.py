@@ -5,9 +5,9 @@ from google.cloud import documentai
 
 def parse_heading_level(block_type: str) -> int:
     """Extract heading level from block type string. (e.g., 'heading-2' -> 2)"""
-    for ch in block_type:
-        if ch.isdigit():
-            return int(ch)
+    parts = block_type.rsplit("-", 1)
+    if len(parts) == 2 and parts[1].isdigit():
+        return int(parts[1])
     return 1
 
 
