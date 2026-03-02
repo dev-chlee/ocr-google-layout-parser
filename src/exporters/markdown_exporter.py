@@ -78,8 +78,9 @@ class MarkdownExporter:
                     # Only the first block in an entry gets a marker; rest are continuation
                     marker = f"{'  ' if is_ordered else ' '} "
 
-        # Recursively process child blocks
-        if block.text_block and block.text_block.blocks:
+        # Recursively process child blocks only if parent had no text
+        # (text_block.text already includes aggregated child text)
+        if block.text_block and block.text_block.blocks and not block.text_block.text:
             child_indent = list_indent + 1 if list_marker else list_indent
             for child in block.text_block.blocks:
                 self._render_block(

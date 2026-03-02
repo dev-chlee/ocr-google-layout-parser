@@ -50,7 +50,6 @@ class HTMLExporter:
         self.headings = []
         self.heading_counter = 0
 
-        page_count = 0
         page_blocks = self._group_blocks_by_page()
         pages_html: list[str] = []
 
@@ -61,6 +60,13 @@ class HTMLExporter:
                     pages_html.append(
                         self._render_page_section(pdf_doc, page_num, page_blocks)
                     )
+        elif page_blocks:
+            # No PDF bytes (e.g. GCS mode) — render text-only pages from blocks
+            page_count = max(page_blocks.keys())
+            for page_num in range(page_count):
+                pages_html.append(
+                    self._render_page_section(None, page_num, page_blocks)
+                )
 
         # Build index from collected headings
         index_html = self._build_index()
@@ -300,7 +306,7 @@ class HTMLExporter:
             img_path = self.images_dir / fname
             with open(img_path, "wb") as f:
                 f.write(img_bytes)
-            rel_path = f"{self.base_name}_images/{fname}"
+            rel_path = _html_escape(f"{self.base_name}_images/{fname}")
             return (
                 f'<img class="page-image" '
                 f'src="{rel_path}" alt="Page {page_num + 1}"/>'

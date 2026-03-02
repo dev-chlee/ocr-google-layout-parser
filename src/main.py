@@ -13,6 +13,7 @@ if sys.platform == "win32" and hasattr(platform, "_uname_cache") and platform._u
             "10",
             platform._syscmd_ver()[2] or "10.0",
             os.environ.get("PROCESSOR_ARCHITECTURE", "AMD64"),
+            os.environ.get("PROCESSOR_IDENTIFIER", ""),
         )
     except Exception:
         pass
@@ -238,7 +239,8 @@ def _run_single_gcs(config, args, logger) -> None:
         )
     total_time = time.time() - start_time
 
-    base_name = Path(args.gcs).stem
+    # Use string split instead of Path().stem for GCS URIs (Windows compat)
+    base_name = args.gcs.rstrip("/").rsplit("/", 1)[-1].rsplit(".", 1)[0]
     _export(doc, None, base_name, args.output, args, logger)
 
     logger.info(f"Total time: {total_time:.1f}s")

@@ -27,10 +27,9 @@ def split_pdf(pdf_bytes: bytes, chunk_size: int) -> list[tuple[bytes, int]]:
         chunks: list[tuple[bytes, int]] = []
         for start in range(0, total_pages, chunk_size):
             end = min(start + chunk_size, total_pages)
-            chunk_doc = fitz.open()
-            chunk_doc.insert_pdf(src, from_page=start, to_page=end - 1)
-            chunks.append((chunk_doc.tobytes(), start))
-            chunk_doc.close()
+            with fitz.open() as chunk_doc:
+                chunk_doc.insert_pdf(src, from_page=start, to_page=end - 1)
+                chunks.append((chunk_doc.tobytes(), start))
 
         logger.info(
             f"PDF split into {len(chunks)} chunks "
