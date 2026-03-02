@@ -60,10 +60,19 @@ class DocumentAIConfig:
         def _bool(key: str, default: str = "true") -> bool:
             return os.environ.get(key, default).lower() == "true"
 
+        def _int(key: str, default: str) -> int:
+            val = os.environ.get(key, default)
+            try:
+                return int(val)
+            except ValueError:
+                raise ValueError(
+                    f"Invalid integer for {key}={val!r}. Check .env configuration."
+                )
+
         processing = ProcessingConfig(
             return_images=_bool("RETURN_IMAGES"),
             return_bounding_boxes=_bool("RETURN_BOUNDING_BOXES"),
-            chunk_size=int(os.environ.get("CHUNK_SIZE", "1024")),
+            chunk_size=_int("CHUNK_SIZE", "1024"),
             include_ancestor_headings=_bool("INCLUDE_ANCESTOR_HEADINGS"),
             enable_ocr_config=_bool("ENABLE_OCR_CONFIG", "false"),
             enable_native_pdf_parsing=_bool("ENABLE_NATIVE_PDF_PARSING"),
@@ -92,8 +101,8 @@ class DocumentAIConfig:
             location=os.environ.get("GCP_LOCATION", "us"),
             processor_id=processor_id,
             gcs_bucket=os.environ.get("GCS_BUCKET"),
-            max_online_pages=int(os.environ.get("MAX_ONLINE_PAGES", "15")),
-            online_timeout=int(os.environ.get("ONLINE_TIMEOUT", "600")),
-            batch_timeout=int(os.environ.get("BATCH_TIMEOUT", "3600")),
+            max_online_pages=_int("MAX_ONLINE_PAGES", "15"),
+            online_timeout=_int("ONLINE_TIMEOUT", "600"),
+            batch_timeout=_int("BATCH_TIMEOUT", "3600"),
             processing=processing,
         )

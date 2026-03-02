@@ -50,7 +50,6 @@ class HTMLExporter:
         self.headings = []
         self.heading_counter = 0
 
-        page_count = 0
         page_blocks = self._group_blocks_by_page()
         pages_html: list[str] = []
 
@@ -61,6 +60,13 @@ class HTMLExporter:
                     pages_html.append(
                         self._render_page_section(pdf_doc, page_num, page_blocks)
                     )
+        elif page_blocks:
+            # No PDF bytes (e.g. GCS mode) — render text-only pages from blocks
+            page_count = max(page_blocks.keys())
+            for page_num in range(page_count):
+                pages_html.append(
+                    self._render_page_section(None, page_num, page_blocks)
+                )
 
         # Build index from collected headings
         index_html = self._build_index()
@@ -95,6 +101,7 @@ class HTMLExporter:
             "V: \uc6d0\ubcf8 \ud1a0\uae00 | B: \ubaa9\ucc28 \ud1a0\uae00"
             " | C: Excel \ubcf5\uc0ac"
             " | P: \ud398\uc774\uc9c0 \ubdf0"
+            " | +/-: \uc90c"
             " | L: \uc5b8\uc5b4"
             " | \u2190\u2192: \ud398\uc774\uc9c0 \uc774\ub3d9"
             "</div>",
@@ -175,10 +182,28 @@ class HTMLExporter:
             "\U0001f4c4 \uc6d0\ubcf8 \ubcf4\uae30 (V)</button>"
         )
         parts.append(
+            '    <button id="toggle-text-btn" class="toggle-text-btn active" '
+            'onclick="toggleText()" '
+            'title="\ud14d\uc2a4\ud2b8 \ud1a0\uae00 (T)">'
+            "\U0001f4dd \ud14d\uc2a4\ud2b8 (T)</button>"
+        )
+        parts.append(
             '    <button id="page-view-btn" class="page-view-btn" '
             'onclick="togglePageView()" '
             'title="\ud398\uc774\uc9c0 \ubdf0 (P)">'
             "\U0001f4d6 \ud398\uc774\uc9c0 \ubdf0 (P)</button>"
+        )
+        parts.append(
+            '    <div class="zoom-controls" '
+            'title="\uc774\ubbf8\uc9c0 \ud655\ub300/\ucd95\uc18c (+/-)">'
+            '<button id="zoom-out-btn" class="zoom-btn" '
+            'onclick="zoomOut()">'
+            "\u2796</button>"
+            '<span id="zoom-level" class="zoom-level">100%</span>'
+            '<button id="zoom-in-btn" class="zoom-btn" '
+            'onclick="zoomIn()">'
+            "\u2795</button>"
+            "</div>"
         )
         parts.append(
             '    <button id="copy-btn" class="copy-btn" '
@@ -281,7 +306,7 @@ class HTMLExporter:
             img_path = self.images_dir / fname
             with open(img_path, "wb") as f:
                 f.write(img_bytes)
-            rel_path = f"{self.base_name}_images/{fname}"
+            rel_path = _html_escape(f"{self.base_name}_images/{fname}")
             return (
                 f'<img class="page-image" '
                 f'src="{rel_path}" alt="Page {page_num + 1}"/>'
@@ -476,6 +501,21 @@ body {
 .toggle-images-btn:hover { background: #2980b9; }
 .toggle-images-btn.active { background: #27ae60; }
 
+.toggle-text-btn {
+  width: 100%;
+  background: #27ae60;
+  color: #fff;
+  border: none;
+  padding: 8px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: background 0.2s;
+}
+.toggle-text-btn:hover { background: #219a52; }
+.toggle-text-btn.active { background: #27ae60; }
+.toggle-text-btn:not(.active) { background: #95a5a6; }
+
 .page-view-btn {
   width: 100%;
   background: #e67e22;
@@ -629,12 +669,18 @@ body.sidebar-collapsed .content-area { margin-left: 0; }
   flex-shrink: 0;
   border-left: 2px solid #3498db;
   background: #f7f9fb;
+  overflow: auto;
 }
 .image-col img { width: 100%; display: block; }
 
 /* Show images mode */
 body.show-images .image-col { display: block; }
 body.show-images .text-col { width: 50%; flex: none; }
+
+/* Image-only mode */
+body.hide-text .text-col { display: none; }
+body.show-images.hide-text .image-col { width: 100%; }
+body.page-view.show-images.hide-text .image-col { width: 100%; }
 
 /* ── Text Styling ── */
 .text-col h1 {
@@ -761,9 +807,40 @@ body.page-view.show-images .image-col {
   display: block;
   width: 50%;
   flex-shrink: 0;
-  overflow-y: auto;
+  overflow: auto;
   border-left: 2px solid #3498db;
   background: #f7f9fb;
+}
+
+/* ── Zoom Controls ── */
+.zoom-controls {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+}
+.zoom-btn {
+  flex: 1;
+  background: #16a085;
+  color: #fff;
+  border: none;
+  padding: 8px 0;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: background 0.2s;
+}
+.zoom-btn:hover { background: #1abc9c; }
+.zoom-btn:disabled { background: #bdc3c7; cursor: not-allowed; }
+.zoom-level {
+  flex: 1.5;
+  background: #1abc9c;
+  color: #fff;
+  border: none;
+  padding: 8px 0;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
 }
 """
 
@@ -776,6 +853,9 @@ var _LANG = {
   ko: {
     showOriginal: '\\ud83d\\udcc4 \\uc6d0\\ubcf8 \\ubcf4\\uae30 (V)',
     hideOriginal: '\\ud83d\\udcc4 \\uc6d0\\ubcf8 \\uc228\\uae30\\uae30 (V)',
+    showText: '\\ud83d\\udcdd \\ud14d\\uc2a4\\ud2b8 \\ubcf4\\uae30 (T)',
+    hideText: '\\ud83d\\udcdd \\ud14d\\uc2a4\\ud2b8 \\uc228\\uae30\\uae30 (T)',
+    textTitle: '\\ud14d\\uc2a4\\ud2b8 \\ud1a0\\uae00 (T)',
     pageView: '\\ud83d\\udcd6 \\ud398\\uc774\\uc9c0 \\ubdf0 (P)',
     continuousView: '\\ud83d\\udcc4 \\uc5f0\\uc18d \\ubcf4\\uae30 (P)',
     copyExcel: '\\ud83d\\udccb Excel \\ubcf5\\uc0ac (C)',
@@ -787,14 +867,18 @@ var _LANG = {
     showOriginalTitle: '\\uc6d0\\ubcf8 \\uc774\\ubbf8\\uc9c0 \\ubcf4\\uae30 (V)',
     pageViewTitle: '\\ud398\\uc774\\uc9c0 \\ubdf0 (P)',
     copyTitle: 'Excel \\ubd99\\uc5ec\\ub123\\uae30\\uc6a9 \\ubcf5\\uc0ac (C)',
-    shortcutHint: 'V: \\uc6d0\\ubcf8 \\ud1a0\\uae00 | B: \\ubaa9\\ucc28 \\ud1a0\\uae00 | C: Excel \\ubcf5\\uc0ac | P: \\ud398\\uc774\\uc9c0 \\ubdf0 | L: \\uc5b8\\uc5b4 | \\u2190\\u2192: \\ud398\\uc774\\uc9c0 \\uc774\\ub3d9',
+    shortcutHint: 'V: \\uc6d0\\ubcf8 | T: \\ud14d\\uc2a4\\ud2b8 | B: \\ubaa9\\ucc28 | C: Excel \\ubcf5\\uc0ac | P: \\ud398\\uc774\\uc9c0 \\ubdf0 | +/-: \\uc90c | L: \\uc5b8\\uc5b4 | \\u2190\\u2192: \\ud398\\uc774\\uc9c0',
     noContent: '(\\ud14d\\uc2a4\\ud2b8 \\uc5c6\\uc74c)',
     expandToc: '\\u25b6 \\ubaa9\\ucc28',
+    zoomTitle: '\\uc774\\ubbf8\\uc9c0 \\ud655\\ub300/\\ucd95\\uc18c (+/-)',
     lang: '\\ud83c\\udf10 EN'
   },
   en: {
     showOriginal: '\\ud83d\\udcc4 Show Original (V)',
     hideOriginal: '\\ud83d\\udcc4 Hide Original (V)',
+    showText: '\\ud83d\\udcdd Show Text (T)',
+    hideText: '\\ud83d\\udcdd Hide Text (T)',
+    textTitle: 'Toggle Text (T)',
     pageView: '\\ud83d\\udcd6 Page View (P)',
     continuousView: '\\ud83d\\udcc4 Continuous (P)',
     copyExcel: '\\ud83d\\udccb Copy Excel (C)',
@@ -806,9 +890,10 @@ var _LANG = {
     showOriginalTitle: 'Show Original Images (V)',
     pageViewTitle: 'Page View (P)',
     copyTitle: 'Copy for Excel Paste (C)',
-    shortcutHint: 'V: Toggle Original | B: Toggle TOC | C: Copy Excel | P: Page View | L: Lang | \\u2190\\u2192: Pages',
+    shortcutHint: 'V: Original | T: Text | B: TOC | C: Copy Excel | P: Page View | +/-: Zoom | L: Lang | \\u2190\\u2192: Pages',
     noContent: '(No content)',
     expandToc: '\\u25b6 TOC',
+    zoomTitle: 'Image Zoom In/Out (+/-)',
     lang: '\\ud83c\\udf10 KO'
   }
 };
@@ -818,98 +903,62 @@ function t(key) { return _LANG[_lang][key] || key; }
 var _pageViewActive = false;
 var _currentPage = 1;
 var _totalPages = 0;
-var _savedImagesState = false;
+var _showImages = false;
+var _showText = true;
+
+// Zoom state
+var _zoomLevels = [25, 50, 75, 100, 150, 200, 250, 300];
+var _zoomIndex = 3;
+
+// View mode helpers
+function applyViewMode() {
+  document.body.classList.toggle('show-images', _showImages);
+  document.body.classList.toggle('hide-text', !_showText);
+}
+function updateViewBtns() {
+  var imgBtn = document.getElementById('toggle-images-btn');
+  imgBtn.textContent = _showImages ? t('hideOriginal') : t('showOriginal');
+  imgBtn.classList.toggle('active', _showImages);
+  var txtBtn = document.getElementById('toggle-text-btn');
+  txtBtn.textContent = _showText ? t('hideText') : t('showText');
+  txtBtn.classList.toggle('active', _showText);
+}
 
 // Toggle original images (preserves character-level scroll position)
 function toggleImages() {
+  _showImages = !_showImages;
+  // Prevent both hidden
+  if (!_showImages && !_showText) _showText = true;
+
   // In page view, simple toggle (no scroll preservation needed)
   if (_pageViewActive) {
-    document.body.classList.toggle('show-images');
-    var btn = document.getElementById('toggle-images-btn');
-    var on = document.body.classList.contains('show-images');
-    btn.textContent = on ? t('hideOriginal') : t('showOriginal');
-    btn.classList.toggle('active', on);
+    applyViewMode();
+    updateViewBtns();
     return;
   }
+
+  _toggleWithScrollPreserve();
+}
+
+// Toggle text column
+function toggleText() {
+  _showText = !_showText;
+  // Prevent both hidden — auto-enable images
+  if (!_showText && !_showImages) _showImages = true;
+
+  if (_pageViewActive) {
+    applyViewMode();
+    updateViewBtns();
+    return;
+  }
+
+  _toggleWithScrollPreserve();
+}
+
+// Shared scroll-preserving toggle logic
+function _toggleWithScrollPreserve() {
   var content = document.getElementById('content-area');
   var contentRect = content.getBoundingClientRect();
-
-  // Primary: anchor to the exact text character at viewport top using caretRangeFromPoint
-  var anchorRange = null;
-  var anchorOffset = 0;
-  var anchorEl = null;
-  var anchorElOffset = 0;
-  var anchorElHeight = 0;
-  var useProportional = false;
-
-  if (document.caretRangeFromPoint) {
-    // Search within text column area
-    var allTextCols = content.querySelectorAll('.text-col');
-    var probeX = 0, probeY = contentRect.top + 10;
-    for (var tc = 0; tc < allTextCols.length; tc++) {
-      var tcr = allTextCols[tc].getBoundingClientRect();
-      if (tcr.bottom > contentRect.top && tcr.top < contentRect.bottom) {
-        probeX = tcr.left + 30;
-        probeY = Math.max(contentRect.top + 10, tcr.top + 5);
-        break;
-      }
-    }
-    if (probeX > 0) {
-      var caret = document.caretRangeFromPoint(probeX, probeY);
-      if (caret && caret.startContainer.nodeType === 3) {
-        // Check if parent text element extends above the viewport
-        var parentEl = caret.startContainer.parentElement;
-        while (parentEl && !parentEl.matches(
-          'p, li, h1, h2, h3, td, th, .page-divider'
-        )) { parentEl = parentEl.parentElement; }
-        var useCaretAnchor = true;
-        if (parentEl) {
-          var parentRect = parentEl.getBoundingClientRect();
-          // Long paragraph extends above viewport -> proportional element anchor is more stable
-          if (parentRect.top < contentRect.top - 20) {
-            useCaretAnchor = false;
-          }
-        }
-        if (useCaretAnchor) {
-          anchorRange = document.createRange();
-          var endOff = Math.min(caret.startOffset + 1, caret.startContainer.length);
-          anchorRange.setStart(caret.startContainer, caret.startOffset);
-          anchorRange.setEnd(caret.startContainer, endOff);
-          var rr = anchorRange.getBoundingClientRect();
-          if (rr.height > 0) {
-            anchorOffset = rr.top - contentRect.top;
-          } else {
-            anchorRange = null;
-          }
-        }
-      }
-    }
-  }
-
-  // Secondary fallback: element-level anchor
-  if (!anchorRange) {
-    var els = content.querySelectorAll(
-      '.text-col h1, .text-col h2, .text-col h3, .text-col p, '
-      + '.text-col li, .text-col table, .page-divider'
-    );
-    for (var i = 0; i < els.length; i++) {
-      var rect = els[i].getBoundingClientRect();
-      if (rect.bottom <= contentRect.top) continue;
-      if (rect.top >= contentRect.top - 10) {
-        anchorEl = els[i];
-        anchorElOffset = rect.top - contentRect.top;
-        anchorElHeight = rect.height;
-        useProportional = false;
-        break;
-      }
-      if (!anchorEl) {
-        anchorEl = els[i];
-        anchorElOffset = rect.top - contentRect.top;
-        anchorElHeight = rect.height;
-        useProportional = true;
-      }
-    }
-  }
 
   // Temporarily disable transitions
   var textCols = content.querySelectorAll('.text-col');
@@ -917,31 +966,126 @@ function toggleImages() {
   textCols.forEach(function(el) { el.style.transition = 'none'; });
   imageCols.forEach(function(el) { el.style.transition = 'none'; });
 
-  // Toggle
-  document.body.classList.toggle('show-images');
-  var btn = document.getElementById('toggle-images-btn');
-  var on = document.body.classList.contains('show-images');
-  btn.textContent = on ? t('hideOriginal') : t('showOriginal');
-  btn.classList.toggle('active', on);
+  // Character-level anchor if text is visible before AND after toggle
+  var textVisible = !document.body.classList.contains('hide-text');
+  var useCharAnchor = textVisible && _showText;
 
-  // Restore scroll position
-  void content.offsetHeight;
-  var newContentRect = content.getBoundingClientRect();
+  if (useCharAnchor) {
+    var anchorRange = null;
+    var anchorOffset = 0;
+    var anchorEl = null;
+    var anchorElOffset = 0;
+    var anchorElHeight = 0;
+    var useProportional = false;
 
-  if (anchorRange) {
-    // Character-level precise restoration
-    var newRR = anchorRange.getBoundingClientRect();
-    content.scrollTop += (newRR.top - newContentRect.top) - anchorOffset;
-  } else if (anchorEl) {
-    var newRect = anchorEl.getBoundingClientRect();
-    var currentOffset = newRect.top - newContentRect.top;
-    var desiredOffset;
-    if (useProportional && anchorElHeight > 0) {
-      desiredOffset = anchorElOffset * newRect.height / anchorElHeight;
-    } else {
-      desiredOffset = anchorElOffset;
+    if (document.caretRangeFromPoint) {
+      var allTextCols = content.querySelectorAll('.text-col');
+      var probeX = 0, probeY = contentRect.top + 10;
+      for (var tc = 0; tc < allTextCols.length; tc++) {
+        var tcr = allTextCols[tc].getBoundingClientRect();
+        if (tcr.bottom > contentRect.top && tcr.top < contentRect.bottom) {
+          probeX = tcr.left + 30;
+          probeY = Math.max(contentRect.top + 10, tcr.top + 5);
+          break;
+        }
+      }
+      if (probeX > 0) {
+        var caret = document.caretRangeFromPoint(probeX, probeY);
+        if (caret && caret.startContainer.nodeType === 3) {
+          var parentEl = caret.startContainer.parentElement;
+          while (parentEl && !parentEl.matches(
+            'p, li, h1, h2, h3, td, th, .page-divider'
+          )) { parentEl = parentEl.parentElement; }
+          var useCaretAnchor = true;
+          if (parentEl) {
+            var parentRect = parentEl.getBoundingClientRect();
+            if (parentRect.top < contentRect.top - 20) {
+              useCaretAnchor = false;
+            }
+          }
+          if (useCaretAnchor) {
+            anchorRange = document.createRange();
+            var endOff = Math.min(caret.startOffset + 1, caret.startContainer.length);
+            anchorRange.setStart(caret.startContainer, caret.startOffset);
+            anchorRange.setEnd(caret.startContainer, endOff);
+            var rr = anchorRange.getBoundingClientRect();
+            if (rr.height > 0) {
+              anchorOffset = rr.top - contentRect.top;
+            } else {
+              anchorRange = null;
+            }
+          }
+        }
+      }
     }
-    content.scrollTop += currentOffset - desiredOffset;
+
+    if (!anchorRange) {
+      var els = content.querySelectorAll(
+        '.text-col h1, .text-col h2, .text-col h3, .text-col p, '
+        + '.text-col li, .text-col table, .page-divider'
+      );
+      for (var i = 0; i < els.length; i++) {
+        var rect = els[i].getBoundingClientRect();
+        if (rect.bottom <= contentRect.top) continue;
+        if (rect.top >= contentRect.top - 10) {
+          anchorEl = els[i];
+          anchorElOffset = rect.top - contentRect.top;
+          anchorElHeight = rect.height;
+          useProportional = false;
+          break;
+        }
+        if (!anchorEl) {
+          anchorEl = els[i];
+          anchorElOffset = rect.top - contentRect.top;
+          anchorElHeight = rect.height;
+          useProportional = true;
+        }
+      }
+    }
+
+    applyViewMode();
+    updateViewBtns();
+
+    void content.offsetHeight;
+    var newContentRect = content.getBoundingClientRect();
+
+    if (anchorRange) {
+      var newRR = anchorRange.getBoundingClientRect();
+      content.scrollTop += (newRR.top - newContentRect.top) - anchorOffset;
+    } else if (anchorEl) {
+      var newRect = anchorEl.getBoundingClientRect();
+      var currentOffset = newRect.top - newContentRect.top;
+      var desiredOffset;
+      if (useProportional && anchorElHeight > 0) {
+        desiredOffset = anchorElOffset * newRect.height / anchorElHeight;
+      } else {
+        desiredOffset = anchorElOffset;
+      }
+      content.scrollTop += currentOffset - desiredOffset;
+    }
+  } else {
+    // Page-level anchor (text appearing/disappearing)
+    var pages = content.querySelectorAll('.page');
+    var anchorPage = null;
+    var anchorPageOffset = 0;
+    for (var p = 0; p < pages.length; p++) {
+      var pr = pages[p].getBoundingClientRect();
+      if (pr.bottom > contentRect.top) {
+        anchorPage = pages[p];
+        anchorPageOffset = pr.top - contentRect.top;
+        break;
+      }
+    }
+
+    applyViewMode();
+    updateViewBtns();
+
+    if (anchorPage) {
+      void content.offsetHeight;
+      var newPR = anchorPage.getBoundingClientRect();
+      var newCR = content.getBoundingClientRect();
+      content.scrollTop += (newPR.top - newCR.top) - anchorPageOffset;
+    }
   }
 
   // Restore transitions
@@ -1018,6 +1162,29 @@ function fallbackCopy(html, btn) {
   document.body.removeChild(tmp);
 }
 
+// Zoom functions
+function applyZoom() {
+  var level = _zoomLevels[_zoomIndex];
+  var imgs = document.querySelectorAll('.image-col img');
+  imgs.forEach(function(img) { img.style.width = level + '%'; });
+  var display = document.getElementById('zoom-level');
+  if (display) display.textContent = level + '%';
+  var outBtn = document.getElementById('zoom-out-btn');
+  var inBtn = document.getElementById('zoom-in-btn');
+  if (outBtn) outBtn.disabled = (_zoomIndex <= 0);
+  if (inBtn) inBtn.disabled = (_zoomIndex >= _zoomLevels.length - 1);
+}
+function zoomIn() {
+  if (_zoomIndex < _zoomLevels.length - 1) { _zoomIndex++; applyZoom(); }
+}
+function zoomOut() {
+  if (_zoomIndex > 0) { _zoomIndex--; applyZoom(); }
+}
+function resetZoom() {
+  _zoomIndex = 3;
+  applyZoom();
+}
+
 // Language toggle
 function toggleLang() {
   _lang = (_lang === 'ko') ? 'en' : 'ko';
@@ -1026,13 +1193,16 @@ function toggleLang() {
 
 function applyLang() {
   document.getElementById('toggle-images-btn').textContent =
-    document.body.classList.contains('show-images') ? t('hideOriginal') : t('showOriginal');
+    _showImages ? t('hideOriginal') : t('showOriginal');
+  document.getElementById('toggle-text-btn').textContent =
+    _showText ? t('hideText') : t('showText');
   document.getElementById('page-view-btn').textContent =
     _pageViewActive ? t('continuousView') : t('pageView');
   document.getElementById('copy-btn').textContent = t('copyExcel');
   document.getElementById('lang-btn').textContent = t('lang');
 
   document.getElementById('toggle-images-btn').title = t('showOriginalTitle');
+  document.getElementById('toggle-text-btn').title = t('textTitle');
   document.getElementById('page-view-btn').title = t('pageViewTitle');
   document.getElementById('copy-btn').title = t('copyTitle');
 
@@ -1044,6 +1214,8 @@ function applyLang() {
   if (expandTab) { expandTab.title = t('openToc'); expandTab.textContent = t('expandToc'); }
   var hint = document.querySelector('.shortcut-hint');
   if (hint) hint.textContent = t('shortcutHint');
+  var zoomControls = document.querySelector('.zoom-controls');
+  if (zoomControls) zoomControls.title = t('zoomTitle');
 }
 
 // Sidebar toggle
@@ -1062,10 +1234,13 @@ document.addEventListener('keydown', function(e) {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
   var k = e.key.toLowerCase();
   if (k === 'v' && !e.ctrlKey && !e.metaKey) toggleImages();
+  if (k === 't' && !e.ctrlKey && !e.metaKey) toggleText();
   if (k === 'b' && !e.ctrlKey && !e.metaKey) toggleSidebar();
   if (k === 'c' && !e.ctrlKey && !e.metaKey) copyForExcel();
   if (k === 'p' && !e.ctrlKey && !e.metaKey) togglePageView();
   if (k === 'l' && !e.ctrlKey && !e.metaKey) toggleLang();
+  if ((e.key === '+' || e.key === '=') && !e.ctrlKey && !e.metaKey) zoomIn();
+  if (e.key === '-' && !e.ctrlKey && !e.metaKey) zoomOut();
   if (_pageViewActive && e.key === 'ArrowLeft') { e.preventDefault(); navigatePage(-1); }
   if (_pageViewActive && e.key === 'ArrowRight') { e.preventDefault(); navigatePage(1); }
 });

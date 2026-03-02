@@ -61,7 +61,8 @@ class BatchProcessor:
         results: dict[str, documentai.Document] = {}
         for status in statuses:
             # Extract original filename from input_gcs_source
-            source_name = Path(status.input_gcs_source).stem
+            # Use string split instead of Path().stem for GCS URIs (Windows compat)
+            source_name = status.input_gcs_source.rstrip("/").rsplit("/", 1)[-1].rsplit(".", 1)[0]
             # output_gcs_destination -> location of this file's result JSON
             output_dest = status.output_gcs_destination
             # Strip gs:// prefix to extract path within the bucket
