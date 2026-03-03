@@ -225,11 +225,14 @@ def _run_single_local(config, args, file_path_str: str, logger, output_dir: str 
     else:
         logger.info("Mode: online API")
         start_time = time.time()
+        # Skip return_images for image inputs (already have original)
+        skip_images = original_image_bytes is not None
         with log_timer(logger, "Online API complete"):
             doc = process_document(
                 config,
                 cache_path=args.cache,
                 raw_content=pdf_bytes,
+                return_images=False if skip_images else None,
             )
         total_time = time.time() - start_time
 

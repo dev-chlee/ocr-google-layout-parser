@@ -18,16 +18,24 @@ def create_client(location: str) -> documentai.DocumentProcessorServiceClient:
 
 
 def build_process_options(
-    config: DocumentAIConfig, *, batch_mode: bool = False
+    config: DocumentAIConfig,
+    *,
+    batch_mode: bool = False,
+    return_images: bool | None = None,
 ) -> documentai.ProcessOptions:
     """Build optimal ProcessOptions from ProcessingConfig."""
     pc = config.processing
 
     # return_images is not supported in batch processing
-    return_images = False if batch_mode else pc.return_images
+    if return_images is not None:
+        _return_images = return_images
+    elif batch_mode:
+        _return_images = False
+    else:
+        _return_images = pc.return_images
 
     layout_config = documentai.ProcessOptions.LayoutConfig(
-        return_images=return_images,
+        return_images=_return_images,
         return_bounding_boxes=pc.return_bounding_boxes,
         chunking_config=documentai.ProcessOptions.LayoutConfig.ChunkingConfig(
             chunk_size=pc.chunk_size,
@@ -67,6 +75,7 @@ def process_document(
     mime_type: str = "application/pdf",
     cache_path: str | None = None,
     raw_content: bytes | None = None,
+    return_images: bool | None = None,
 ) -> documentai.Document:
     # Load cached response if available
     if cache_path:
@@ -101,7 +110,7 @@ def process_document(
     else:
         raise ValueError("Either file_path or gcs_uri must be specified.")
 
-    request.process_options = build_process_options(config)
+    request.process_options = build_process_options(config, return_images=return_images)
 
     result = client.process_document(request=request, timeout=config.online_timeout)
     doc = result.document
