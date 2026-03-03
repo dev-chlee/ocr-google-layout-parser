@@ -4,6 +4,39 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+# Supported file extensions → MIME types
+SUPPORTED_IMAGE_EXTENSIONS: dict[str, str] = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".tiff": "image/tiff",
+    ".tif": "image/tiff",
+    ".bmp": "image/bmp",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+}
+SUPPORTED_EXTENSIONS: dict[str, str] = {
+    ".pdf": "application/pdf",
+    **SUPPORTED_IMAGE_EXTENSIONS,
+}
+
+
+def get_mime_type(path: str | Path) -> str:
+    """Return MIME type for a supported file extension, or raise ValueError."""
+    ext = Path(path).suffix.lower()
+    mime = SUPPORTED_EXTENSIONS.get(ext)
+    if mime is None:
+        raise ValueError(
+            f"Unsupported file type: {ext}. "
+            f"Supported: {', '.join(sorted(SUPPORTED_EXTENSIONS))}"
+        )
+    return mime
+
+
+def is_image_file(path: str | Path) -> bool:
+    """Check if the file has a supported image extension."""
+    return Path(path).suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS
+
 
 @dataclass
 class ProcessingConfig:

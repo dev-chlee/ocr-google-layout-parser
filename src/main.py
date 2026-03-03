@@ -25,7 +25,8 @@ from pathlib import Path
 import fitz
 
 from src.batch_processor import BatchProcessor
-from src.config import DocumentAIConfig
+from src.config import SUPPORTED_EXTENSIONS, DocumentAIConfig, is_image_file
+from src.converter import convert_image_to_pdf
 from src.exporters.html_exporter import HTMLExporter
 from src.exporters.markdown_exporter import MarkdownExporter
 from src.logger import fmt_size, log_timer, setup_logging
@@ -36,10 +37,15 @@ def main():
     parser = argparse.ArgumentParser(
         description="GCP Document AI Layout Parser OCR"
     )
+    _supported_exts = ", ".join(sorted(SUPPORTED_EXTENSIONS))
     parser.add_argument(
-        "--file", "-f", nargs="+", help="PDF file path(s) (multiple allowed)"
+        "--file", "-f", nargs="+",
+        help=f"File path(s) - PDF or image ({_supported_exts})",
     )
-    parser.add_argument("--dir", "-d", help="PDF directory path (process all PDFs in folder)")
+    parser.add_argument(
+        "--dir", "-d",
+        help="Directory path (process all supported files in folder)",
+    )
     parser.add_argument("--gcs", "-g", help="GCS URI (gs://bucket/path)")
     parser.add_argument(
         "--batch", "-b", help="Batch processing: GCS input prefix (gs://bucket/folder/)"
@@ -97,46 +103,53 @@ def main():
     if args.batch:
         _run_batch(config, args, logger)
     elif args.file or args.dir or args.gcs:
-        # Collect files: --file + --dir -> pdf_files list
+        # Collect files: --file + --dir -> file list
         try:
-            pdf_files = _collect_pdf_files(args)
+            input_files = _collect_files(args)
         except (FileNotFoundError, NotADirectoryError, ValueError) as e:
             parser.error(str(e))
 
-        if not pdf_files and args.gcs:
+        if not input_files and args.gcs:
             _run_single_gcs(config, args, logger)
-        elif len(pdf_files) == 1:
-            _run_single_local(config, args, pdf_files[0], logger)
-        elif len(pdf_files) >= 2:
-            _run_multi_local(config, args, pdf_files, logger)
+        elif len(input_files) == 1:
+            _run_single_local(config, args, input_files[0], logger)
+        elif len(input_files) >= 2:
+            _run_multi_local(config, args, input_files, logger)
         else:
-            parser.error("No PDF files to process.")
+            parser.error("No supported files to process.")
     else:
         parser.error("One of --file, --dir, --gcs, or --batch must be specified.")
 
 
-def _collect_pdf_files(args) -> list[str]:
-    """Collect PDF file paths from --file and --dir arguments."""
-    pdf_files: list[str] = []
+def _collect_files(args) -> list[str]:
+    """Collect supported file paths (PDF + images) from --file and --dir arguments."""
+    files: list[str] = []
+    supported_exts = set(SUPPORTED_EXTENSIONS)
 
     if args.file:
         for f in args.file:
             p = Path(f).resolve()
             if not p.exists():
                 raise FileNotFoundError(f"File not found: {f}")
-            pdf_files.append(str(p))
+            if p.suffix.lower() not in supported_exts:
+                raise ValueError(
+                    f"Unsupported file type: {p.name}. "
+                    f"Supported: {', '.join(sorted(supported_exts))}"
+                )
+            files.append(str(p))
 
     if args.dir:
         dir_path = Path(args.dir).resolve()
         if not dir_path.is_dir():
             raise NotADirectoryError(f"Directory not found: {args.dir}")
-        for p in sorted(dir_path.glob("*.pdf")):
-            pdf_files.append(str(p))
+        for p in sorted(dir_path.iterdir()):
+            if p.suffix.lower() in supported_exts:
+                files.append(str(p))
 
     # Check for duplicate filenames (stems) to prevent output folder conflicts
-    stems = [Path(f).stem for f in pdf_files]
+    stems = [Path(f).stem for f in files]
     seen: dict[str, str] = {}
-    for path, stem in zip(pdf_files, stems):
+    for path, stem in zip(files, stems):
         if stem in seen:
             raise ValueError(
                 f"Filename conflict: '{stem}' - {seen[stem]} vs {path}. "
@@ -144,17 +157,26 @@ def _collect_pdf_files(args) -> list[str]:
             )
         seen[stem] = path
 
-    return pdf_files
+    return files
 
 
-def _run_single_local(config, args, pdf_path: str, logger, output_dir: str | None = None) -> None:
-    """Process a single local PDF (online API, parallel chunked, or batch)."""
-    file_path = Path(pdf_path)
+def _run_single_local(config, args, file_path_str: str, logger, output_dir: str | None = None) -> None:
+    """Process a single local file - PDF or image (online API, parallel chunked, or batch)."""
+    file_path = Path(file_path_str)
     with open(file_path, "rb") as f:
-        pdf_bytes = f.read()
+        raw_bytes = f.read()
 
-    with fitz.open(stream=pdf_bytes, filetype="pdf") as pdf_doc:
-        page_count = len(pdf_doc)
+    # Image files: convert to PDF for Layout Parser compatibility
+    original_image_bytes: bytes | None = None
+    if is_image_file(file_path):
+        original_image_bytes = raw_bytes
+        logger.info(f"Converting image to PDF: {file_path.name}")
+        pdf_bytes = convert_image_to_pdf(raw_bytes)
+        page_count = 1
+    else:
+        pdf_bytes = raw_bytes
+        with fitz.open(stream=pdf_bytes, filetype="pdf") as pdf_doc:
+            page_count = len(pdf_doc)
 
     logger.info(f"Processing: {file_path.name} ({page_count} pages)")
 
@@ -182,7 +204,7 @@ def _run_single_local(config, args, pdf_path: str, logger, output_dir: str | Non
             logger.warning(f"Parallel processing failed: {e}")
             logger.info("Falling back to GCS batch processing...")
             with log_timer(logger, "Batch API fallback complete"):
-                doc = _run_batch_fallback(config, pdf_path, logger)
+                doc = _run_batch_fallback(config, file_path_str, logger)
         total_time = time.time() - start_time
     elif needs_splitting:
         # --no-parallel or fallback: GCS batch
@@ -198,7 +220,7 @@ def _run_single_local(config, args, pdf_path: str, logger, output_dir: str | Non
         )
         start_time = time.time()
         with log_timer(logger, "Batch API complete"):
-            doc = _run_batch_fallback(config, pdf_path, logger)
+            doc = _run_batch_fallback(config, file_path_str, logger)
         total_time = time.time() - start_time
     else:
         logger.info("Mode: online API")
@@ -213,7 +235,8 @@ def _run_single_local(config, args, pdf_path: str, logger, output_dir: str | Non
 
     base_name = file_path.stem
     out = output_dir or args.output
-    _export(doc, pdf_bytes, base_name, out, args, logger)
+    _export(doc, pdf_bytes, base_name, out, args, logger,
+            original_image_bytes=original_image_bytes)
 
     logger.info(f"Total time: {total_time:.1f}s")
 
@@ -246,21 +269,21 @@ def _run_single_gcs(config, args, logger) -> None:
     logger.info(f"Total time: {total_time:.1f}s")
 
 
-def _run_multi_local(config, args, pdf_files: list[str], logger) -> None:
-    """Process multiple local PDFs individually (online/parallel per file)."""
-    file_names = [Path(f).name for f in pdf_files]
-    logger.info(f"Processing: {len(pdf_files)} files ({', '.join(file_names)})")
+def _run_multi_local(config, args, input_files: list[str], logger) -> None:
+    """Process multiple local files individually (online/parallel per file)."""
+    file_names = [Path(f).name for f in input_files]
+    logger.info(f"Processing: {len(input_files)} files ({', '.join(file_names)})")
 
     start_time = time.time()
     results: list[tuple[str, str]] = []  # (base_name, output_dir)
 
-    for i, pdf_path in enumerate(pdf_files, 1):
-        base_name = Path(pdf_path).stem
+    for i, file_path in enumerate(input_files, 1):
+        base_name = Path(file_path).stem
         file_output_dir = str(Path(args.output) / base_name)
         Path(file_output_dir).mkdir(parents=True, exist_ok=True)
 
-        logger.info(f"─── [{i}/{len(pdf_files)}] {Path(pdf_path).name} ───")
-        _run_single_local(config, args, pdf_path, logger, output_dir=file_output_dir)
+        logger.info(f"─── [{i}/{len(input_files)}] {Path(file_path).name} ───")
+        _run_single_local(config, args, file_path, logger, output_dir=file_output_dir)
         results.append((base_name, file_output_dir))
 
     total_time = time.time() - start_time
@@ -271,17 +294,24 @@ def _run_multi_local(config, args, pdf_files: list[str], logger) -> None:
     for base_name, file_output_dir in results:
         sizes = _get_output_sizes(Path(file_output_dir), base_name)
         logger.info(f"  {base_name} → {file_output_dir}/ ({sizes})")
-    logger.info(f"Total time ({len(pdf_files)} files): {total_time:.1f}s")
+    logger.info(f"Total time ({len(input_files)} files): {total_time:.1f}s")
 
 
-def _export(doc, pdf_bytes, base_name, output_dir, args, logger) -> None:
+def _export(
+    doc, pdf_bytes, base_name, output_dir, args, logger,
+    original_image_bytes: bytes | None = None,
+) -> None:
     """Export Document to HTML/MD."""
     if args.format in ("html", "both"):
         html_path = f"{output_dir}/{base_name}.html"
-        exporter = HTMLExporter(doc, pdf_bytes, embed_images=args.embed_images)
+        exporter = HTMLExporter(
+            doc, pdf_bytes,
+            embed_images=args.embed_images,
+            original_image_bytes=original_image_bytes,
+        )
         exporter.export(html_path)
         logger.info(f"HTML saved: {html_path}")
-        if not args.embed_images and pdf_bytes:
+        if not args.embed_images and pdf_bytes and not original_image_bytes:
             logger.info(f"Images saved: {output_dir}/{base_name}_images/")
 
     if args.format in ("md", "both"):
