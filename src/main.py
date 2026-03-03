@@ -19,6 +19,7 @@ if sys.platform == "win32" and hasattr(platform, "_uname_cache") and platform._u
         pass
 
 import argparse
+import shutil
 import time
 from pathlib import Path
 
@@ -29,7 +30,7 @@ from src.config import SUPPORTED_EXTENSIONS, DocumentAIConfig, is_image_file
 from src.converter import convert_image_to_pdf
 from src.exporters.html_exporter import HTMLExporter
 from src.exporters.markdown_exporter import MarkdownExporter
-from src.logger import fmt_size, log_timer, setup_logging
+from src.logger import add_file_logging, fmt_size, log_timer, setup_logging
 from src.processor import process_document, process_document_parallel
 
 
@@ -92,7 +93,7 @@ def main():
     args = parser.parse_args()
 
     config = DocumentAIConfig.from_env()
-    logger = setup_logging(args.output)
+    logger = setup_logging()
 
     # Override chunk-size from CLI
     if args.chunk_size is not None:
@@ -100,7 +101,12 @@ def main():
     args.max_workers = max(1, min(args.max_workers, 10))
     Path(args.output).mkdir(parents=True, exist_ok=True)
 
+    # Validate mutually exclusive options
+    if args.gcs and (args.file or args.dir):
+        parser.error("--gcs cannot be combined with --file or --dir.")
+
     if args.batch:
+        add_file_logging(logger, args.output)
         _run_batch(config, args, logger)
     elif args.file or args.dir or args.gcs:
         # Collect files: --file + --dir -> file list
@@ -110,10 +116,22 @@ def main():
             parser.error(str(e))
 
         if not input_files and args.gcs:
+            # GCS single file: log in subfolder
+            base_name = args.gcs.rstrip("/").rsplit("/", 1)[-1].rsplit(".", 1)[0]
+            file_output_dir = str(Path(args.output) / base_name)
+            Path(file_output_dir).mkdir(parents=True, exist_ok=True)
+            add_file_logging(logger, file_output_dir)
             _run_single_gcs(config, args, logger)
         elif len(input_files) == 1:
-            _run_single_local(config, args, input_files[0], logger)
+            # Single file: log in subfolder
+            base_name = Path(input_files[0]).stem
+            file_output_dir = str(Path(args.output) / base_name)
+            Path(file_output_dir).mkdir(parents=True, exist_ok=True)
+            add_file_logging(logger, file_output_dir)
+            _run_single_local(config, args, input_files[0], logger, output_dir=file_output_dir)
         elif len(input_files) >= 2:
+            # Multi file: log at output root
+            add_file_logging(logger, args.output)
             _run_multi_local(config, args, input_files, logger)
         else:
             parser.error("No supported files to process.")
@@ -239,7 +257,8 @@ def _run_single_local(config, args, file_path_str: str, logger, output_dir: str 
     base_name = file_path.stem
     out = output_dir or args.output
     _export(doc, pdf_bytes, base_name, out, args, logger,
-            original_image_bytes=original_image_bytes)
+            original_image_bytes=original_image_bytes,
+            source_path=file_path_str)
 
     logger.info(f"Total time: {total_time:.1f}s")
 
@@ -267,7 +286,9 @@ def _run_single_gcs(config, args, logger) -> None:
 
     # Use string split instead of Path().stem for GCS URIs (Windows compat)
     base_name = args.gcs.rstrip("/").rsplit("/", 1)[-1].rsplit(".", 1)[0]
-    _export(doc, None, base_name, args.output, args, logger)
+    file_output_dir = str(Path(args.output) / base_name)
+    Path(file_output_dir).mkdir(parents=True, exist_ok=True)
+    _export(doc, None, base_name, file_output_dir, args, logger)
 
     logger.info(f"Total time: {total_time:.1f}s")
 
@@ -303,8 +324,16 @@ def _run_multi_local(config, args, input_files: list[str], logger) -> None:
 def _export(
     doc, pdf_bytes, base_name, output_dir, args, logger,
     original_image_bytes: bytes | None = None,
+    source_path: str | None = None,
 ) -> None:
-    """Export Document to HTML/MD."""
+    """Export Document to HTML/MD and copy source file."""
+    # Copy original source file to source/ subfolder
+    if source_path:
+        source_dir = Path(output_dir) / "source"
+        source_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source_path, source_dir / Path(source_path).name)
+        logger.info(f"Source copied: {source_dir / Path(source_path).name}")
+
     if args.format in ("html", "both"):
         html_path = f"{output_dir}/{base_name}.html"
         exporter = HTMLExporter(
@@ -315,7 +344,7 @@ def _export(
         exporter.export(html_path)
         logger.info(f"HTML saved: {html_path}")
         if not args.embed_images and pdf_bytes and not original_image_bytes:
-            logger.info(f"Images saved: {output_dir}/{base_name}_images/")
+            logger.info(f"Images saved: {output_dir}/images/")
 
     if args.format in ("md", "both"):
         md_path = f"{output_dir}/{base_name}.md"

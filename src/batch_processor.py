@@ -81,8 +81,14 @@ class BatchProcessor:
             source_name = status.input_gcs_source.rstrip("/").rsplit("/", 1)[-1].rsplit(".", 1)[0]
             # output_gcs_destination -> location of this file's result JSON
             output_dest = status.output_gcs_destination
-            # Strip gs:// prefix to extract path within the bucket
-            output_path = output_dest.replace(f"gs://{bucket_name}/", "")
+            # Strip gs://bucket/ prefix to extract path within the bucket
+            gcs_prefix = f"gs://{bucket_name}/"
+            if not output_dest.startswith(gcs_prefix):
+                raise RuntimeError(
+                    f"Batch result destination {output_dest!r} is not in "
+                    f"the expected bucket gs://{bucket_name}/"
+                )
+            output_path = output_dest[len(gcs_prefix):]
             if not output_path.endswith("/"):
                 output_path += "/"
 

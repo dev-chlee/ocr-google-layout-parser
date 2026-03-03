@@ -38,7 +38,7 @@ class HTMLExporter:
         self.base_name = Path(output_path).stem
 
         if not self.embed_images:
-            self.images_dir = self.output_dir / f"{self.base_name}_images"
+            self.images_dir = self.output_dir / "images"
             self.images_dir.mkdir(parents=True, exist_ok=True)
 
         html_content = self._build_html()
@@ -316,7 +316,7 @@ class HTMLExporter:
             img_path = self.images_dir / fname
             with open(img_path, "wb") as f:
                 f.write(img_bytes)
-            rel_path = _html_escape(f"{self.base_name}_images/{fname}")
+            rel_path = _html_escape(f"images/{fname}")
             return (
                 f'<img class="page-image" '
                 f'src="{rel_path}" alt="Page {page_num + 1}"/>'
@@ -338,7 +338,7 @@ class HTMLExporter:
             img_path = self.images_dir / fname
             with open(img_path, "wb") as f:
                 f.write(self.original_image_bytes)
-            rel_path = _html_escape(f"{self.base_name}_images/{fname}")
+            rel_path = _html_escape(f"images/{fname}")
             return (
                 f'<img class="page-image" '
                 f'src="{rel_path}" alt="Page 1"/>'
