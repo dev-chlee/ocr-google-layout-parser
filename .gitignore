@@ -31,5 +31,8 @@ output/
 !.claude/skills/
 CLAUDE.md
 
+# Git worktrees
+.worktrees/
+
 # Root-level PDF duplicates
 /*.pdf

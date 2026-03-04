@@ -21,10 +21,12 @@ class HTMLExporter:
         document: documentai.Document,
         original_pdf_bytes: bytes | None = None,
         embed_images: bool = False,
+        original_image_bytes: bytes | None = None,
     ):
         self.doc = document
         self.pdf_bytes = original_pdf_bytes
         self.embed_images = embed_images
+        self.original_image_bytes = original_image_bytes
         self.base_name = ""
         self.output_dir = Path(".")
         self.images_dir = Path(".")
@@ -36,7 +38,7 @@ class HTMLExporter:
         self.base_name = Path(output_path).stem
 
         if not self.embed_images:
-            self.images_dir = self.output_dir / f"{self.base_name}_images"
+            self.images_dir = self.output_dir / "images"
             self.images_dir.mkdir(parents=True, exist_ok=True)
 
         html_content = self._build_html()
@@ -53,7 +55,12 @@ class HTMLExporter:
         page_blocks = self._group_blocks_by_page()
         pages_html: list[str] = []
 
-        if self.pdf_bytes:
+        if self.original_image_bytes:
+            # Single image input: render with original image directly
+            pages_html.append(
+                self._render_page_section(None, 0, page_blocks)
+            )
+        elif self.pdf_bytes:
             with fitz.open(stream=self.pdf_bytes, filetype="pdf") as pdf_doc:
                 page_count = len(pdf_doc)
                 for page_num in range(page_count):
@@ -145,7 +152,10 @@ class HTMLExporter:
 
         # Image column
         parts.append('    <div class="image-col">')
-        if pdf_doc:
+        if self.original_image_bytes and page_num == 0:
+            img_tag = self._render_original_image()
+            parts.append(f"      {img_tag}")
+        elif pdf_doc:
             img_tag = self._render_page_image(pdf_doc, page_num)
             parts.append(f"      {img_tag}")
         parts.append("    </div>")
@@ -306,10 +316,32 @@ class HTMLExporter:
             img_path = self.images_dir / fname
             with open(img_path, "wb") as f:
                 f.write(img_bytes)
-            rel_path = _html_escape(f"{self.base_name}_images/{fname}")
+            rel_path = _html_escape(f"images/{fname}")
             return (
                 f'<img class="page-image" '
                 f'src="{rel_path}" alt="Page {page_num + 1}"/>'
+            )
+
+    def _render_original_image(self) -> str:
+        """Render the original image bytes directly (for image file inputs)."""
+        mime = _detect_image_mime(self.original_image_bytes)
+        if self.embed_images:
+            b64 = base64.b64encode(self.original_image_bytes).decode("utf-8")
+            return (
+                f'<img class="page-image" '
+                f'src="data:{mime};base64,{b64}" '
+                f'alt="Page 1"/>'
+            )
+        else:
+            ext = _MIME_TO_EXT.get(mime, ".png")
+            fname = f"page_1{ext}"
+            img_path = self.images_dir / fname
+            with open(img_path, "wb") as f:
+                f.write(self.original_image_bytes)
+            rel_path = _html_escape(f"images/{fname}")
+            return (
+                f'<img class="page-image" '
+                f'src="{rel_path}" alt="Page 1"/>'
             )
 
     def _make_heading(self, text: str, level: int, page_num: int) -> str:
@@ -428,6 +460,33 @@ class HTMLExporter:
 
 def _html_escape(text: str) -> str:
     return html_mod.escape(text).replace("\n", "<br>")
+
+
+def _detect_image_mime(data: bytes) -> str:
+    """Detect image MIME type from magic bytes."""
+    if data[:2] == b"\xff\xd8":
+        return "image/jpeg"
+    if data[:4] == b"\x89PNG":
+        return "image/png"
+    if data[:4] in (b"II*\x00", b"MM\x00*"):
+        return "image/tiff"
+    if data[:2] == b"BM":
+        return "image/bmp"
+    if data[:4] == b"GIF8":
+        return "image/gif"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return "image/png"
+
+
+_MIME_TO_EXT: dict[str, str] = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/tiff": ".tiff",
+    "image/bmp": ".bmp",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+}
 
 
 # ── CSS ────────────────────────────────────────────────────────

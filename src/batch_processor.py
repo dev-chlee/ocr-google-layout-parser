@@ -5,7 +5,8 @@ from pathlib import Path
 
 from google.cloud import documentai, storage
 
-from src.config import DocumentAIConfig
+from src.config import SUPPORTED_EXTENSIONS, DocumentAIConfig, is_image_file
+from src.converter import convert_image_to_pdf
 from src.merger import merge_documents
 from src.processor import build_process_options, create_client
 
@@ -22,10 +23,13 @@ class BatchProcessor:
 
     def process_local_files(
         self,
-        pdf_paths: list[str],
+        file_paths: list[str],
         timeout: int | None = None,
     ) -> dict[str, documentai.Document]:
-        """Multiple local PDFs -> GCS upload -> single batch run -> per-file Document return."""
+        """Multiple local files (PDF/image) -> GCS upload -> single batch run -> per-file Document return.
+
+        Image files are converted to PDF before uploading (Layout Parser requires PDF).
+        """
         if timeout is None:
             timeout = self.config.batch_timeout
         bucket_name = self.config.gcs_bucket
@@ -39,14 +43,26 @@ class BatchProcessor:
         gcs_prefix = f"batch_{timestamp}"
         gcs_output_prefix = f"gs://{bucket_name}/{gcs_prefix}/output/"
 
-        # 1. Upload all files to GCS
+        # 1. Upload all files to GCS (convert images to PDF first)
         gcs_uris: list[tuple[str, str]] = []  # (filename, gcs_uri)
-        for pdf_path in pdf_paths:
-            pdf_file = Path(pdf_path).resolve()
-            gcs_input_path = f"{gcs_prefix}/input/{pdf_file.name}"
-            gcs_uri = self._upload_to_gcs(pdf_file, bucket_name, gcs_input_path)
-            gcs_uris.append((pdf_file.name, gcs_uri))
-            logger.debug(f"GCS upload: {gcs_uri}")
+        for file_path in file_paths:
+            local_file = Path(file_path).resolve()
+            if is_image_file(local_file):
+                # Convert image to PDF before uploading
+                pdf_name = f"{local_file.stem}.pdf"
+                gcs_input_path = f"{gcs_prefix}/input/{pdf_name}"
+                image_bytes = local_file.read_bytes()
+                pdf_bytes = convert_image_to_pdf(image_bytes)
+                gcs_uri = self._upload_bytes_to_gcs(
+                    pdf_bytes, bucket_name, gcs_input_path
+                )
+                gcs_uris.append((pdf_name, gcs_uri))
+                logger.debug(f"GCS upload (image→PDF): {gcs_uri}")
+            else:
+                gcs_input_path = f"{gcs_prefix}/input/{local_file.name}"
+                gcs_uri = self._upload_to_gcs(local_file, bucket_name, gcs_input_path)
+                gcs_uris.append((local_file.name, gcs_uri))
+                logger.debug(f"GCS upload: {gcs_uri}")
 
         logger.info(f"GCS upload complete: {len(gcs_uris)} files -> gs://{bucket_name}/{gcs_prefix}/input/")
 
@@ -65,8 +81,14 @@ class BatchProcessor:
             source_name = status.input_gcs_source.rstrip("/").rsplit("/", 1)[-1].rsplit(".", 1)[0]
             # output_gcs_destination -> location of this file's result JSON
             output_dest = status.output_gcs_destination
-            # Strip gs:// prefix to extract path within the bucket
-            output_path = output_dest.replace(f"gs://{bucket_name}/", "")
+            # Strip gs://bucket/ prefix to extract path within the bucket
+            gcs_prefix = f"gs://{bucket_name}/"
+            if not output_dest.startswith(gcs_prefix):
+                raise RuntimeError(
+                    f"Batch result destination {output_dest!r} is not in "
+                    f"the expected bucket gs://{bucket_name}/"
+                )
+            output_path = output_dest[len(gcs_prefix):]
             if not output_path.endswith("/"):
                 output_path += "/"
 
@@ -189,6 +211,15 @@ class BatchProcessor:
         blob.upload_from_filename(str(local_path))
         return f"gs://{bucket_name}/{gcs_path}"
 
+    def _upload_bytes_to_gcs(
+        self, data: bytes, bucket_name: str, gcs_path: str
+    ) -> str:
+        """Upload raw bytes to GCS."""
+        bucket = self.storage_client.bucket(bucket_name)
+        blob = bucket.blob(gcs_path)
+        blob.upload_from_string(data, content_type="application/pdf")
+        return f"gs://{bucket_name}/{gcs_path}"
+
     def process_batch(
         self,
         input_gcs_prefix: str,
@@ -205,7 +236,7 @@ class BatchProcessor:
 
         input_docs = self._list_gcs_documents(input_gcs_prefix)
         if not input_docs:
-            raise ValueError(f"No PDF files found at GCS path: {input_gcs_prefix}")
+            raise ValueError(f"No supported files found at GCS path: {input_gcs_prefix}")
 
         logger.info(f"Starting batch processing: {len(input_docs)} documents")
 
